@@ -1,0 +1,10 @@
+{
+  "name": "GovLens",
+  "short_name": "GovLens",
+  "description": "Understand Indian government documents with local AI. English + Telugu.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#1d4ed8",
+  "icons": []
+}

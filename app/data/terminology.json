@@ -1,0 +1,46 @@
+{
+  "version": "0.1.0",
+  "description": "Telugu/English aliases for government terms used by keyword retrieval.",
+  "terms": [
+    {
+      "en": "income certificate",
+      "te": ["ఆదాయ ధృవీకరణ పత్రం", "ఆదాయ సర్టిఫికేట్"],
+      "keywords": ["income", "tahsildar", "meeseva", "scholarship", "fee reimbursement"]
+    },
+    {
+      "en": "ration card",
+      "te": ["రేషన్ కార్డు", "ఆహార భద్రత కార్డు"],
+      "keywords": ["ration", "food security", "fair price", "civil supplies"]
+    },
+    {
+      "en": "land passbook",
+      "te": ["భూమి పాస్‌బుక్", "ధరణి", "పట్టాదారు పాస్‌బుక్"],
+      "keywords": ["dharani", "survey number", "khata", "mutation", "registration", "land"]
+    },
+    {
+      "en": "aadhaar update",
+      "te": ["ఆధార్ నవీకరణ", "ఆధార్ అప్‌డేట్"],
+      "keywords": ["aadhaar", "uidai", "biometric", "e-aadhaar", "enrolment"]
+    },
+    {
+      "en": "pm-kisan",
+      "te": ["పీఎం-కిసాన్", "రైతు సమ్మాన్ నిధి"],
+      "keywords": ["pm-kisan", "farmer", "instalment", "e-kyc", "beneficiary"]
+    },
+    {
+      "en": "required documents",
+      "te": ["అవసరమైన పత్రాలు", "కావలసిన డాక్యుమెంట్లు"],
+      "keywords": ["documents required", "documents needed", "what documents"]
+    },
+    {
+      "en": "fee",
+      "te": ["ఫీజు", "రుసుము"],
+      "keywords": ["fee", "fees", "charge", "cost"]
+    },
+    {
+      "en": "deadline",
+      "te": ["గడువు", "చివరి తేదీ"],
+      "keywords": ["deadline", "last date", "due date", "timeline", "days"]
+    }
+  ]
+}

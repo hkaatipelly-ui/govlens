@@ -1,0 +1,13 @@
+{
+  "id": "goi-aadhaar-update",
+  "title": "Aadhaar Update via UIDAI (Government of India)",
+  "department": "Unique Identification Authority of India (UIDAI)",
+  "state": "All India",
+  "type": "identity-procedure",
+  "sourceUrl": "https://uidai.gov.in/aadhaar-update/",
+  "language": "en",
+  "publishedDate": "2024-08-01",
+  "effectiveDate": "2024-08-01",
+  "lastVerified": "2026-09-01",
+  "text": "Aadhaar demographic details such as name, address, date of birth, mobile number, and biometric details can be updated at Aadhaar Seva Kendras or authorised enrolment centres. Required documents for address update: valid proof of address such as passport, bank statement, electricity bill, or ration card. For name or date of birth correction: valid proof of identity and proof of date of birth such as birth certificate, passport, or SSLC certificate. Mobile number update requires biometric authentication at the centre and cannot be done fully online. After update, keep the acknowledgement slip with the Update Request Number to track status on the UIDAI website. The updated Aadhaar letter can be downloaded as e-Aadhaar once processed."
+}

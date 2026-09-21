@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --gov-font-scale: 1;
+}
+
+html {
+  font-size: calc(16px * var(--gov-font-scale));
+}
+
+body {
+  @apply bg-gov-offWhite text-gov-ink antialiased;
+}
+
+html.gov-contrast body {
+  @apply bg-white text-black;
+}
+
+/* Strong, visible focus for keyboard users */
+:focus-visible {
+  outline: 3px solid #f39a2f;
+  outline-offset: 2px;
+}
+
+@layer components {
+  .gov-container {
+    @apply mx-auto w-full max-w-6xl px-4 sm:px-6;
+  }
+  .gov-card {
+    @apply rounded-gov border border-gov-border bg-white shadow-gov;
+  }
+  .gov-section-title {
+    @apply flex items-center gap-2 border-b-2 border-gov-blue pb-2 text-lg font-bold text-gov-navy sm:text-xl;
+  }
+  .gov-btn {
+    @apply inline-flex min-h-[48px] items-center justify-center gap-2 rounded-gov px-5 py-2.5 text-base font-bold transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .gov-btn-primary {
+    @apply gov-btn bg-gov-blue text-white hover:bg-gov-blueDark;
+  }
+  .gov-btn-saffron {
+    @apply gov-btn bg-gov-saffron text-gov-ink hover:bg-gov-saffronDark hover:text-white;
+  }
+  .gov-btn-green {
+    @apply gov-btn bg-gov-green text-white hover:bg-gov-greenDark;
+  }
+  .gov-btn-outline {
+    @apply gov-btn border-2 border-gov-blue bg-white text-gov-blue hover:bg-gov-lightBlue;
+  }
+  .gov-btn-outline-light {
+    @apply gov-btn border-2 border-white bg-transparent text-white hover:bg-white/10;
+  }
+  .gov-input {
+    @apply min-h-[48px] w-full rounded-gov border border-gov-border bg-white p-3 text-base text-gov-ink placeholder:text-gov-muted focus:border-gov-blue focus:outline-none;
+  }
+  .gov-table {
+    @apply w-full border-collapse text-left text-sm sm:text-base;
+  }
+  .gov-table th {
+    @apply border-b-2 border-gov-navy bg-gov-lightBlue px-3 py-2.5 font-bold text-gov-navy;
+  }
+  .gov-table td {
+    @apply border-b border-gov-border px-3 py-2.5 align-top;
+  }
+  .gov-table tr:last-child td {
+    @apply border-b-0;
+  }
+  .gov-badge {
+    @apply inline-block whitespace-nowrap rounded-gov px-2.5 py-1 text-xs font-bold uppercase tracking-wide;
+  }
+  .gov-skip-link {
+    @apply sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded-gov focus:bg-gov-saffron focus:px-4 focus:py-2 focus:font-bold focus:text-gov-ink;
+  }
+}

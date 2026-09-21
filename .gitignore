@@ -1,0 +1,6 @@
+node_modules/
+.next/
+out/
+*.log
+.govlens-data/
+.DS_Store
