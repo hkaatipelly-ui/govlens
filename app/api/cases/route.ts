@@ -82,6 +82,8 @@ export async function POST(req: Request) {
         checklist,
         verification: session.verification,
         explanation: session.explanation,
+        fileName: session.fileName,
+        fileType: session.fileType,
         qa: history
           .filter((m) => m.role === "user")
           .map((m, i) => {
@@ -165,6 +167,8 @@ export async function POST(req: Request) {
       originalText: legacy.documentText.trim(),
       extraction: canonical,
       evidence: mappedEvidence,
+      fileName: parsed.data.fileName ?? null,
+      fileType: parsed.data.fileType ?? null,
       checklist: Array.isArray(legacy.checklist)
         ? (legacy.checklist as Array<Record<string, unknown>>).map((c, i) => ({
             id: String(c.id ?? `item-${i}`),

@@ -58,6 +58,8 @@ export async function apiAnalyze(
     language?: "en" | "te" | "hi";
     sessionId?: string;
     imageDataUrl?: string;
+    fileName?: string | null;
+    fileType?: "pdf" | "docx" | "jpeg" | "jpg" | "png" | null;
     onStage?: (stage: AnalyzeStage, label: string) => void;
   } = {}
 ): Promise<AnalyzeResponse> {
@@ -69,6 +71,8 @@ export async function apiAnalyze(
       language: opts.language ?? "en",
       sessionId: opts.sessionId,
       imageDataUrl: opts.imageDataUrl,
+      fileName: opts.fileName ?? undefined,
+      fileType: opts.fileType ?? undefined,
     }),
   });
   const contentType = res.headers.get("content-type") ?? "";

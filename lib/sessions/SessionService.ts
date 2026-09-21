@@ -15,6 +15,8 @@ export interface Session {
   sourceIds: string[];
   language: string;
   createdAt: string;
+  fileName: string | null;
+  fileType: string | null;
 }
 
 export interface ConversationMessage {
@@ -28,14 +30,20 @@ export class SessionService {
     migrate(this.db);
   }
 
-  create(input: { documentText: string; language: string; sessionId?: string }): Session {
+  create(input: {
+    documentText: string;
+    language: string;
+    sessionId?: string;
+    fileName?: string | null;
+    fileType?: string | null;
+  }): Session {
     const id = input.sessionId ?? newId();
     const existing = this.get(id);
     if (existing && existing.documentText === input.documentText) return existing;
     this.db
       .prepare(
-        `INSERT OR REPLACE INTO sessions (id, document_text, ocr_json, extraction_json, source_ids_json, language, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT OR REPLACE INTO sessions (id, document_text, ocr_json, extraction_json, source_ids_json, language, created_at, file_name, file_type)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -44,7 +52,9 @@ export class SessionService {
         existing?.extraction ? JSON.stringify(existing.extraction) : null,
         JSON.stringify(existing?.sourceIds ?? []),
         input.language,
-        existing?.createdAt ?? nowIso()
+        existing?.createdAt ?? nowIso(),
+        input.fileName ?? existing?.fileName ?? null,
+        input.fileType ?? existing?.fileType ?? null
       );
     return this.get(id)!;
   }
@@ -62,6 +72,8 @@ export class SessionService {
       sourceIds: JSON.parse(String(row.source_ids_json ?? "[]")),
       language: String(row.language ?? "en"),
       createdAt: String(row.created_at),
+      fileName: row.file_name ? String(row.file_name) : null,
+      fileType: row.file_type ? String(row.file_type) : null,
     };
   }
 

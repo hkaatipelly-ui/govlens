@@ -177,6 +177,14 @@ export default function ResultPage() {
               <h1 className="text-xl font-extrabold text-gov-navy sm:text-2xl">
                 {extraction.title ?? extraction.documentType}
               </h1>
+              {session?.fileName && (
+                <p className="mt-1 flex flex-wrap items-center gap-2 text-sm">
+                  <span className="text-gov-muted">Document: <strong className="text-gov-navy">{session.fileName}</strong></span>
+                  {session.fileType && (
+                    <span className="gov-badge bg-gov-lightBlue text-gov-navy">Type: {session.fileType.toUpperCase()}</span>
+                  )}
+                </p>
+              )}
               <dl className="mt-2 grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
                 <div className="flex gap-2"><dt className="font-bold text-gov-muted">Department:</dt><dd>{dept}</dd></div>
                 <div className="flex gap-2"><dt className="font-bold text-gov-muted">Reference No:</dt><dd className="font-mono">{refNo}</dd></div>

@@ -32,7 +32,6 @@ let singleton: Database | null = null;
 
 export function getDatabase(): Database {
   if (singleton) return singleton;
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { DatabaseSync } = require("node:sqlite") as {
     DatabaseSync: new (path: string) => Database;
   };
@@ -45,7 +44,6 @@ export function getDatabase(): Database {
 
 /** Test helper: independent DB handle (never touches the singleton). */
 export function openTestDatabase(): Database {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { DatabaseSync } = require("node:sqlite") as {
     DatabaseSync: new (path: string) => Database;
   };

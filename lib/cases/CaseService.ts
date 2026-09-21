@@ -39,6 +39,8 @@ export interface Case {
   verification: Verification | null;
   explanation: Explanation | null;
   qa: CaseQA[];
+  fileName: string | null;
+  fileType: string | null;
 }
 
 export interface CreateCaseInput {
@@ -52,6 +54,8 @@ export interface CreateCaseInput {
   verification?: Verification | null;
   explanation?: Explanation | null;
   qa?: CaseQA[];
+  fileName?: string | null;
+  fileType?: string | null;
 }
 
 function parseJson<T>(raw: unknown, fallback: T): T {
@@ -87,6 +91,8 @@ function rowToCase(row: Record<string, unknown>): Case {
     verification: row.verification_json ? JSON.parse(String(row.verification_json)) : null,
     explanation: row.explanation_json ? JSON.parse(String(row.explanation_json)) : null,
     qa: parseJson<CaseQA[]>(row.qa_json, []),
+    fileName: row.file_name ? String(row.file_name) : null,
+    fileType: row.file_type ? String(row.file_type) : null,
   };
 }
 
@@ -110,8 +116,8 @@ export class CaseService {
           summary, deadline, amount, reference_number, required_documents_json,
           required_actions_json, warning_signals_json, source_ids_json,
           original_text, evidence_json, checklist_json,
-          verification_json, explanation_json, qa_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          verification_json, explanation_json, qa_json, file_name, file_type)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -135,7 +141,9 @@ export class CaseService {
         JSON.stringify(input.checklist),
         input.verification ? JSON.stringify(input.verification) : null,
         input.explanation ? JSON.stringify(input.explanation) : null,
-        JSON.stringify(input.qa ?? [])
+        JSON.stringify(input.qa ?? []),
+        input.fileName ?? null,
+        input.fileType ?? null
       );
     const link = this.db.prepare(
       `INSERT OR IGNORE INTO case_sources (case_id, source_id) VALUES (?, ?)`

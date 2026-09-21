@@ -126,9 +126,13 @@ export function migrate(db: Database): void {
   for (const ddl of [
     `ALTER TABLE sessions ADD COLUMN verification_json TEXT`,
     `ALTER TABLE sessions ADD COLUMN explanation_json TEXT`,
+    `ALTER TABLE sessions ADD COLUMN file_name TEXT`,
+    `ALTER TABLE sessions ADD COLUMN file_type TEXT`,
     `ALTER TABLE cases ADD COLUMN verification_json TEXT`,
     `ALTER TABLE cases ADD COLUMN explanation_json TEXT`,
     `ALTER TABLE cases ADD COLUMN qa_json TEXT NOT NULL DEFAULT '[]'`,
+    `ALTER TABLE cases ADD COLUMN file_name TEXT`,
+    `ALTER TABLE cases ADD COLUMN file_type TEXT`,
   ]) {
     try {
       db.exec(ddl);

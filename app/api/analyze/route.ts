@@ -24,7 +24,7 @@ export async function POST(req: Request) {
   }
   const parsed = parseOrError(analyzeRequestSchema, body);
   if (!parsed.ok) return Response.json({ error: parsed.message }, { status: 400 });
-  const { text, language, sessionId: requestedSession, imageDataUrl } = parsed.data;
+  const { text, language, sessionId: requestedSession, imageDataUrl, fileName, fileType } = parsed.data;
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -40,6 +40,8 @@ export async function POST(req: Request) {
           documentText: text,
           language,
           sessionId: requestedSession,
+          fileName: fileName ?? undefined,
+          fileType: fileType ?? undefined,
         });
 
         // 1. OCR cleanup + normalization (Gemma).

@@ -14,9 +14,9 @@ export default function DocumentUploader({ onSelect }: Props) {
       <input
         ref={inputRef}
         type="file"
-        accept="image/*"
+        accept=".pdf,.docx,.jpg,.jpeg,.png,image/*"
         className="hidden"
-        aria-label="Upload a document image"
+        aria-label="Upload a document (PDF, DOCX, JPG, JPEG or PNG)"
         onChange={(e) => {
           const file = e.target.files?.[0];
           if (file) onSelect(file);
@@ -31,7 +31,7 @@ export default function DocumentUploader({ onSelect }: Props) {
         <span aria-hidden>📤</span> Upload from Device
       </button>
       <p className="mt-1 text-center text-xs text-gov-muted">
-        JPG or PNG photo of the government document
+        Supported: PDF, DOCX, JPG, JPEG, PNG
       </p>
     </div>
   );

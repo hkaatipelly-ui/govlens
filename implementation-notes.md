@@ -95,3 +95,25 @@ Decisions taken where architecture.md was ambiguous or where the simplest workin
   receipt → not_government gate; OCR-noise → cleaned + verified; synthetic image
   → vision signals + likely_government; romanized Telugu Q → Telugu grounded
   answer. 47 vitest cases pass; `tsc`, `next build` clean.
+
+## 8. Multi-format ingestion (PDF/DOCX/JPG/JPEG/PNG) — surgical extension
+- New client module `app/lib/ingestion.ts` (DocumentIngestion concept):
+  `validateFile` (extension decides, MIME tolerated; 15 MB cap),
+  `normalizeDocumentFile` → NormalizedDocument {id,fileName,fileType,mimeType,
+  text,pages,originalSize,language,firstPageImageDataUrl}. Images keep the
+  untouched camera/Tesseract path; text PDFs use pdf.js text layer; scanned
+  PDFs render pages→existing OCR with `[Page N]` boundaries (max 10 pages);
+  DOCX uses mammoth (no OCR). Deps: `pdfjs-dist@3.4.120` (worker copied to
+  `public/pdf.worker.min.js`, no CDN), `mammoth`; `canvas` is dev-only for tests.
+- One downstream pipeline: normalized text (+first-page vision image) → the
+  unchanged verify→RAG→Gemma→result flow. Verification statuses/rules, prompts,
+  model, RAG untouched.
+- Minimal UI: upload accepts `.pdf,.docx,.jpg,.jpeg,.png`; "Supported: PDF,
+  DOCX, JPG, JPEG, PNG" caption; file chip (name/type/size); result header shows
+  Document/Type chip. Camera unchanged.
+- Persistence: nullable `file_name`/`file_type` on sessions+cases (old records
+  unaffected); controlled errors for corrupt/protected/empty/oversized/unsupported.
+- Added repo ESLint config (was absent) so `npm run lint` passes clean.
+- Verified: 62 vitest (incl. pdf.js text-layer + mammoth + validation tests),
+  `tsc`, `lint`, `build` clean; live: PDF text→verified, DOCX→verified+fields,
+  private DOCX→not_government, DOCX case stores fileName/verification.

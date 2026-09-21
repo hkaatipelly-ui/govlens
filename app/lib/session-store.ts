@@ -17,6 +17,8 @@ export interface QA {
 export interface DocSession {
   sessionId: string | null;
   imageUrl: string | null;
+  fileName: string | null;
+  fileType: string | null;
   ocr: OCRResult | null;
   text: string;
   cleanedText: string | null;
@@ -35,6 +37,8 @@ export interface DocSession {
 const EMPTY: DocSession = {
   sessionId: null,
   imageUrl: null,
+  fileName: null,
+  fileType: null,
   ocr: null,
   text: "",
   cleanedText: null,

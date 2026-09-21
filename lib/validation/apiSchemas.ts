@@ -9,6 +9,8 @@ export const analyzeRequestSchema = z.object({
   sessionId: z.string().trim().min(1).max(128).optional(),
   /** Optional downscaled JPEG data URL for Gemma vision verification. */
   imageDataUrl: z.string().trim().min(100).max(1000000).optional(),
+  fileName: z.string().trim().min(1).max(120).optional(),
+  fileType: z.enum(["pdf", "docx", "jpeg", "jpg", "png"]).optional(),
 });
 
 export const askRequestSchema = z.object({
@@ -31,6 +33,8 @@ export const createCaseRequestSchema = z.object({
   title: z.string().trim().max(300).optional(),
   language: z.enum(["en", "te", "hi"]).optional(),
   userNote: z.string().trim().max(2000).optional(),
+  fileName: z.string().trim().min(1).max(120).optional(),
+  fileType: z.enum(["pdf", "docx", "jpeg", "jpg", "png"]).optional(),
 });
 
 export const updateCaseRequestSchema = z.object({

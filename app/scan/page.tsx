@@ -9,6 +9,12 @@ import OCRViewer from "../components/OCRViewer";
 import { getOCRService } from "../lib/ocr-service";
 import { updateSession } from "../lib/session-store";
 import { fileToDownscaledDataUrl } from "../lib/image";
+import {
+  validateFile,
+  normalizeDocumentFile,
+  IngestionError,
+  type SupportedFileType,
+} from "../lib/ingestion";
 import { apiAnalyze, type AnalyzeResponse, type AnalyzeStage } from "../services/api";
 import type { Verification } from "@/lib/verification/schemas";
 
@@ -35,9 +41,11 @@ function ScanForm() {
   const searchParams = useSearchParams();
   const uploadRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<File | null>(null);
+  const pdfVisionRef = useRef<string | null>(null);
 
   const [phase, setPhase] = useState<Phase>("capture");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [fileMeta, setFileMeta] = useState<{ name: string; type: SupportedFileType; size: number } | null>(null);
   const [ocrProgress, setOcrProgress] = useState<number | null>(null);
   const [ocrError, setOcrError] = useState<string | null>(null);
   const [ocrConfidence, setOcrConfidence] = useState<number | undefined>(undefined);
@@ -62,6 +70,12 @@ function ScanForm() {
     setGate(null);
     setText("");
     fileRef.current = file;
+    pdfVisionRef.current = null;
+    setFileMeta({
+      name: file.name,
+      type: file.name.toLowerCase().endsWith(".png") ? "png" : "jpg",
+      size: file.size,
+    });
     const url = URL.createObjectURL(file);
     setImageUrl(url);
     try {
@@ -79,11 +93,64 @@ function ScanForm() {
     }
   }, []);
 
+  /**
+   * Upload entry point: images keep the existing camera/OCR path exactly;
+   * PDF/DOCX are normalized to text first, then enter the SAME pipeline.
+   */
+  const handleFile = useCallback(async (file: File) => {
+    let kind: SupportedFileType;
+    try {
+      kind = validateFile(file);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unsupported file type.");
+      return;
+    }
+    if (kind === "jpg" || kind === "jpeg" || kind === "png") {
+      await runOcr(file);
+      return;
+    }
+    setPhase("reading");
+    setOcrError(null);
+    setOcrProgress(0);
+    setError(null);
+    setGate(null);
+    setText("");
+    setImageUrl(null);
+    fileRef.current = null;
+    pdfVisionRef.current = null;
+    setFileMeta({ name: file.name, type: kind, size: file.size });
+    try {
+      const normalized = await normalizeDocumentFile(file, getOCRService(), {
+        onProgress: (p, label) => {
+          setOcrProgress(p);
+          setOcrError(null);
+          void label;
+        },
+      });
+      setText(normalized.text);
+      setOcrConfidence(0.9);
+      pdfVisionRef.current = normalized.firstPageImageDataUrl;
+      if (!normalized.text.trim()) {
+        setOcrError("Could not extract readable text from this document.");
+      }
+    } catch (err) {
+      setOcrError(
+        err instanceof IngestionError ? err.message : "Could not read this file."
+      );
+      setText("");
+    } finally {
+      setOcrProgress(null);
+      setPhase("review");
+    }
+  }, [runOcr]);
+
   const commitResult = useCallback(
     (result: AnalyzeResponse, continuedAnyway: boolean) => {
       updateSession({
         sessionId: result.sessionId,
         imageUrl,
+        fileName: fileMeta?.name ?? null,
+        fileType: fileMeta?.type ?? null,
         text,
         cleanedText: result.cleanedText,
         extraction: result.extraction,
@@ -99,7 +166,7 @@ function ScanForm() {
       });
       router.push("/result");
     },
-    [imageUrl, text, router]
+    [imageUrl, fileMeta, text, router]
   );
 
   const analyze = useCallback(async () => {
@@ -113,10 +180,14 @@ function ScanForm() {
     setPhase("understanding");
     setLiveStage("reading");
     try {
-      // Downscaled image for Gemma vision verification (best-effort).
+      // Vision image: PDF first-page render when available, else the photo (best-effort).
       let imageDataUrl: string | undefined;
       try {
-        if (fileRef.current) imageDataUrl = await fileToDownscaledDataUrl(fileRef.current);
+        if (pdfVisionRef.current) {
+          imageDataUrl = pdfVisionRef.current;
+        } else if (fileRef.current) {
+          imageDataUrl = await fileToDownscaledDataUrl(fileRef.current);
+        }
       } catch {
         /* vision is optional; text pipeline continues */
       }
@@ -124,6 +195,8 @@ function ScanForm() {
       const result = await apiAnalyze(text, {
         language: "en",
         imageDataUrl,
+        fileName: fileMeta?.name ?? undefined,
+        fileType: fileMeta?.type ?? undefined,
         onStage: (stage) => setLiveStage(stage),
       });
       const status = result.verification.status;
@@ -141,7 +214,7 @@ function ScanForm() {
       setBusy(false);
       setLiveStage(null);
     }
-  }, [text, commitResult]);
+  }, [text, fileMeta, commitResult]);
 
   useEffect(() => {
     if (ocrConfidence !== undefined) {
@@ -196,10 +269,18 @@ function ScanForm() {
             </ol>
           )}
 
-          {phase === "capture" && !imageUrl && (
+          {phase === "capture" && !imageUrl && !text && (
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <CameraCapture onCapture={runOcr} />
-              <DocumentUploader onSelect={runOcr} />
+              <DocumentUploader onSelect={handleFile} />
+            </div>
+          )}
+          {fileMeta && phase !== "capture" && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-gov border border-gov-border bg-gov-offWhite px-3 py-2 text-sm" aria-live="polite">
+              <span aria-hidden>📄</span>
+              <span className="font-bold text-gov-navy">{fileMeta.name}</span>
+              <span className="gov-badge bg-gov-lightBlue text-gov-navy">{fileMeta.type.toUpperCase()}</span>
+              <span className="text-gov-muted">{(fileMeta.size / 1024).toFixed(0)} KB</span>
             </div>
           )}
         </div>
@@ -207,13 +288,13 @@ function ScanForm() {
         <input
           ref={uploadRef}
           type="file"
-          accept="image/*"
+          accept=".pdf,.docx,.jpg,.jpeg,.png,image/*"
           className="hidden"
           aria-hidden
           tabIndex={-1}
           onChange={(e) => {
             const f = e.target.files?.[0];
-            if (f) runOcr(f);
+            if (f) handleFile(f);
             e.target.value = "";
           }}
         />
@@ -254,7 +335,9 @@ function ScanForm() {
                 setText("");
                 setOcrError(null);
                 setError(null);
+                setFileMeta(null);
                 fileRef.current = null;
+                pdfVisionRef.current = null;
               }}
               disabled={busy}
               className="gov-btn-outline"
@@ -273,7 +356,9 @@ function ScanForm() {
               setPhase("capture");
               setImageUrl(null);
               setText("");
+              setFileMeta(null);
               fileRef.current = null;
+              pdfVisionRef.current = null;
             }}
           />
         )}
