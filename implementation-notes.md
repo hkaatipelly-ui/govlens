@@ -45,3 +45,53 @@ Decisions taken where architecture.md was ambiguous or where the simplest workin
   te-IN, hi-IN. Analysis summaries remain EN (+TE from the model).
 - Verified end-to-end on `gemma3:4b`: analyze (Telugu summary + grounded doc list),
   ask in EN/TE/HI (all grounded), create case → register → detail (HTTP 200s).
+
+## 6. Backend + integration (Next.js Route Handlers + SQLite + Ollama, no extra infra)
+- Canonical modules under `lib/`: `ai/` (AIEngine interface + OllamaGemmaEngine,
+  server-only, env config, JSON mode, Zod validation, 1 retry, controlled fallback),
+  `ocr/` (interface + browser Tesseract impl; server accepts normalized OCR text),
+  `knowledge/` (interface + LocalKnowledgeEngine + chunker + search; SQLite-seeded
+  corpus, swappable for embeddings later), `extraction/` (Zod schemas),
+  `voice/` (browser impl; backend receives text only), `actions/`, `cases/`
+  (CaseService), `sessions/` (per-scan Q&A isolation), `db/` (database + migrations),
+  `sources/` (SourceService provenance), `validation/` (apiSchemas).
+- Old `app/lib/{ai-engine,knowledge-engine,case-management}` removed; `app/lib`
+  OCR/voice/action files are thin re-export shims. Browser never calls Ollama.
+- APIs: session-based `POST /api/analyze` (ONE model call), `POST /api/ask`
+  (ONE call, session-scoped, Telugu/Hindi script detection), `POST /api/translate`,
+  `POST /api/sources`, `GET/POST /api/cases`, `GET/PATCH /api/cases/:id`,
+  `GET /api/health` → `{status, ollama, modelAvailable, model}`.
+- Errors: 400 validation, 404 unknown case, 422 no context, 503 Ollama/model
+  missing with fix instructions, 500 DB failures. Never fake data.
+- Tests: 32 vitest cases (`tests/`) + manual checklist (`tests/e2e-checklist.md`).
+- Env: `.env.example` (OLLAMA_BASE_URL/MODEL, DATABASE_PATH, NEXT_PUBLIC_APP_URL);
+  `npm run dev:lan` / `start:lan` bind 0.0.0.0 for phone→Mac testing.
+
+## 7. Final AI integration pass (Gemma 3 4B deep integration)
+- Engine (`lib/ai/OllamaGemmaEngine`, behind `AIEngine`): 7 real methods —
+  cleanupOcrText, verifyGovernmentDocument (text A+B + vision C via Ollama
+  `images[]`), extractDocumentFields, explainDocument, answerQuestion
+  (+extraction summary + history), translate (preserves numbers/dates),
+  generateActionPlan. Deterministic decoding (temperature 0, JSON-schema
+  `format` for extraction/explanation), server-side timeouts (AITimeoutError),
+  max 1 retry, Zod validation, no browser→Ollama calls anywhere.
+- Verification (`lib/verification/`): 6-stage service (A classify, B likelihood,
+  C vision, D retrieval, E source match, F merge). "verified" ONLY on strong
+  corpus match (score + distinctive term overlap); text/vision alone cap at
+  "likely_government"; failures → "uncertain". Seals/logos treated as weak signals.
+- Pipeline (`POST /api/analyze`, SSE with honest stages reading→checking-type→
+  finding-info→understanding→explaining): cleanup → verify+retrieve (parallel) →
+  vision+extract (parallel) → merge → explain (timeout degrades to deterministic
+  fallback). Deterministic verbatim post-pass (`lib/extraction/postprocess`)
+  fills model-conservative nulls (ref/deadline/amount) from document substrings.
+- Scan page sends downscaled JPEG (`app/lib/image.ts`) + verification gate
+  (uncertain → Continue anyway + banner; not_government → rescan only). Result
+  shows DOCUMENT CHECK (status/confidence/detected/matched sources/note) +
+  explanation points. Cases store verification/explanation/QA; caseworker shows
+  verification block + Q&A; case creation enriches checklist via AI action plan
+  (rule-based fallback). Q&A detects Telugu script + romanized Telugu
+  ("Naku emi documents…") and Hindi script.
+- Live-verified on gemma3:4b: gov doc → verified(0.95) + grounded extraction;
+  receipt → not_government gate; OCR-noise → cleaned + verified; synthetic image
+  → vision signals + likely_government; romanized Telugu Q → Telugu grounded
+  answer. 47 vitest cases pass; `tsc`, `next build` clean.

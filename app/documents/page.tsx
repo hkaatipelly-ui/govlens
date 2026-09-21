@@ -4,19 +4,24 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Breadcrumb from "../components/Breadcrumb";
 import StatusBadge from "../components/StatusBadge";
-import { apiListCases } from "../services/api";
-import type { Case } from "../types/case";
+import { apiListCases, type Case } from "../services/api";
 
 const FILTERS = ["All", "Notices", "Applications", "Certificates", "Other"] as const;
 type Filter = (typeof FILTERS)[number];
 
 function classify(c: Case): Filter {
-  const t = `${c.analysis.documentType} ${c.analysis.extractedFields.documentType ?? ""}`.toLowerCase();
+  const t = `${c.title} ${c.documentType}`.toLowerCase();
   if (/notice|order|memo|circular/.test(t)) return "Notices";
   if (/application|acknowledgement|receipt|request/.test(t)) return "Applications";
   if (/certificate|passbook|card|aadhaar/.test(t)) return "Certificates";
   return "Other";
 }
+
+const STATUS_LABEL: Record<string, string> = {
+  open: "Open",
+  needs_review: "Needs review",
+  completed: "Completed",
+};
 
 export default function DocumentsPage() {
   const [cases, setCases] = useState<Case[] | null>(null);
@@ -100,21 +105,18 @@ export default function DocumentsPage() {
                     <tr key={c.id}>
                       <td>
                         <Link href={`/caseworker/${c.id}`} className="font-bold text-gov-blue hover:underline">
-                          {c.analysis.documentType}
+                          {c.title}
                         </Link>
                         <br />
                         <span className="font-mono text-xs text-gov-muted">
-                          {c.analysis.extractedFields.applicationId ?? c.id.slice(0, 8)}
+                          {c.referenceNumber ?? c.id.slice(0, 8)}
                         </span>
                       </td>
                       <td><StatusBadge status={classify(c).toLowerCase()} label={classify(c)} /></td>
                       <td className="whitespace-nowrap">{new Date(c.createdAt).toLocaleDateString("en-IN")}</td>
-                      <td>{c.analysis.extractedFields.deadlines[0] ?? "—"}</td>
+                      <td>{c.deadline ?? "—"}</td>
                       <td>
-                        <StatusBadge
-                          status={c.analysis.verified ? "verified" : "pending"}
-                          label={c.analysis.verified ? "Grounded" : "Needs review"}
-                        />
+                        <StatusBadge status={c.status} label={STATUS_LABEL[c.status] ?? c.status} />
                       </td>
                     </tr>
                   ))}

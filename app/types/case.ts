@@ -1,18 +1,4 @@
-import type { DocumentAnalysis } from "./document-extraction";
-import type { KnowledgeChunk } from "./knowledge-chunk";
-import type { ChecklistItem } from "./checklist-item";
+/** Canonical case types live in lib/cases/CaseService (server). Re-exported for UI. */
+import type { Case, CaseStatus } from "@/lib/cases/CaseService";
 
-export type CaseStatus = "new" | "in_review" | "resolved";
-
-export interface Case {
-  id: string;
-  createdAt: string;
-  status: CaseStatus;
-  language: "en" | "te" | "hi";
-  documentText: string;
-  ocrConfidence?: number;
-  analysis: DocumentAnalysis;
-  evidence: KnowledgeChunk[];
-  checklist: ChecklistItem[];
-  userNote?: string;
-}
+export type { Case, CaseStatus };

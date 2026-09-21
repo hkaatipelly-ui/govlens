@@ -1,24 +1,20 @@
 import { NextResponse } from "next/server";
-import { getKnowledgeEngine } from "@/app/lib/knowledge-engine";
+import { getSourceService } from "@/lib/sources/SourceService";
 
+/** POST /api/sources — full provenance for rendered source IDs. */
 export async function POST(req: Request) {
+  let body: unknown;
   try {
-    const body = (await req.json()) as { ids?: string[] };
-    const ids = Array.isArray(body.ids) ? body.ids.slice(0, 6) : [];
-    const kb = getKnowledgeEngine();
-    const out = [];
-    for (const id of ids) {
-      try {
-        out.push(await kb.getSourceMetadata(String(id)));
-      } catch {
-        /* skip unknown ids */
-      }
-    }
-    return NextResponse.json({ sources: out });
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Could not load sources." },
-      { status: 500 }
-    );
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid request: body must be JSON." }, { status: 400 });
   }
+  const ids = (body as { ids?: unknown }).ids;
+  if (!Array.isArray(ids)) {
+    return NextResponse.json({ error: "Invalid request: ids must be an array." }, { status: 400 });
+  }
+  const sources = await getSourceService().getSources(
+    ids.filter((x): x is string => typeof x === "string")
+  );
+  return NextResponse.json({ sources });
 }

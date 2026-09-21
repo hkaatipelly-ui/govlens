@@ -1,15 +1,16 @@
 import Link from "next/link";
-import { getCaseStore, storageKind } from "@/app/lib/case-management";
+import { getCaseService } from "@/lib/cases/CaseService";
 import Breadcrumb from "@/app/components/Breadcrumb";
 import StatusBadge from "@/app/components/StatusBadge";
 
 export const dynamic = "force-dynamic";
 
 export default function CaseworkerPage() {
-  const cases = getCaseStore().list();
-  const open = cases.filter((c) => c.status === "new").length;
-  const review = cases.filter((c) => c.status === "in_review").length;
-  const done = cases.filter((c) => c.status === "resolved").length;
+  // Server component reads through the CaseService (never the DB directly).
+  const cases = getCaseService().list();
+  const open = cases.filter((c) => c.status === "open").length;
+  const review = cases.filter((c) => c.status === "needs_review").length;
+  const done = cases.filter((c) => c.status === "completed").length;
 
   const stats = [
     { label: "Open Cases", value: open, color: "border-t-gov-blue", text: "text-gov-blue" },
@@ -28,7 +29,7 @@ export default function CaseworkerPage() {
                 🏛 Caseworker Dashboard
               </h1>
               <p className="mt-0.5 text-sm text-gov-muted">
-                Cases received from citizen phones · Register: {storageKind()} · Total {cases.length}
+                Cases received from citizen phones · GET /api/cases · Total {cases.length}
               </p>
             </div>
             <Link href="/" className="gov-btn-outline !min-h-[44px] !text-sm">← Citizen View</Link>
@@ -64,7 +65,7 @@ export default function CaseworkerPage() {
                     <th scope="col">Case No</th>
                     <th scope="col">Document</th>
                     <th scope="col">Received</th>
-                    <th scope="col">Sources</th>
+                    <th scope="col">Deadline</th>
                     <th scope="col">Status</th>
                     <th scope="col">Action</th>
                   </tr>
@@ -74,17 +75,17 @@ export default function CaseworkerPage() {
                     <tr key={c.id}>
                       <td className="font-mono text-xs">GOV-{String(cases.length - i).padStart(4, "0")}</td>
                       <td>
-                        <span className="font-bold text-gov-navy">{c.analysis.documentType}</span>
+                        <span className="font-bold text-gov-navy">{c.title}</span>
                         <br />
                         <span className="text-xs text-gov-muted">
-                          {c.analysis.extractedFields.applicationId ?? c.id.slice(0, 8)} ·{" "}
+                          {c.referenceNumber ?? c.id.slice(0, 8)} ·{" "}
                           {c.language === "te" ? "తెలుగు" : c.language === "hi" ? "हिन्दी" : "English"}
                         </span>
                       </td>
                       <td className="whitespace-nowrap text-sm">
                         {new Date(c.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
                       </td>
-                      <td className="text-sm">{c.evidence.length} official</td>
+                      <td className="text-sm font-semibold">{c.deadline ?? "—"}</td>
                       <td><StatusBadge status={c.status} /></td>
                       <td>
                         <Link
