@@ -64,7 +64,13 @@ export function ollamaModel(): string {
   return process.env.OLLAMA_MODEL ?? "gemma3:4b";
 }
 
-const OLLAMA_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS ?? 90000);
+// Server-side AI request budget. Gemma 3 4B on local Metal runs ~12 t/s, so a
+// full structured extraction can exceed 90s — 180s default, overridable.
+const OLLAMA_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS ?? 180000);
+
+// Cap on MODEL OUTPUT tokens only (never truncates user document text — the
+// structured schemas below need ~200-300 tokens; 512 leaves safe headroom).
+const NUM_PREDICT = Number(process.env.OLLAMA_NUM_PREDICT ?? 512);
 
 const GROUND_RULES = `You are GovLens, an AI assistant for Indian government documents. You are NOT a government authority and must NOT claim to be one. You do NOT authenticate physical documents.
 STRICT RULES:
@@ -114,7 +120,7 @@ async function chatOllama(
         model: ollamaModel(),
         stream: false,
         format: opts.format ?? "json",
-        options: { temperature: 0 },
+        options: { temperature: 0, num_predict: NUM_PREDICT },
         messages: [
           { role: "system", content: system },
           {
