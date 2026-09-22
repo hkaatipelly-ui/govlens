@@ -1,5 +1,9 @@
 # GovLens Production Deploy Runbook (single Ubuntu server)
 
+> DEMO ALTERNATIVE (no VPS): tunnel this Mac to the public internet.
+> App + Ollama + Gemma all stay local; phones reach it over HTTPS.
+> See "Option B — Public tunnel to this Mac (demo)" below.
+
 Architecture: Internet → Nginx (:443) → Next.js (:3000) → Ollama
 (`localhost:11434`, never public) → Gemma 3 4B → SQLite.
 
@@ -69,3 +73,32 @@ sudo systemctl restart govlens   # app
 sudo systemctl restart ollama    # AI server
 sudo journalctl -u govlens -f    # logs
 ```
+
+---
+
+## Option B — Public tunnel to this Mac (demo, no VPS, no cloud AI)
+
+Keeps everything local: public HTTPS → Mac Next.js (`:3000`) → Mac Ollama
+(`localhost:11434`) → Gemma 3 4B → SQLite. No remote server, no cloud AI.
+
+```bash
+# 1. Production server bound to all interfaces (from the repo dir)
+./node_modules/.bin/next start -H 0.0.0.0 -p 3000
+
+# 2. Ollama must be running locally
+ollama serve
+curl http://localhost:11434/api/tags   # gemma3:4b must appear
+
+# 3. Public URL (anonymous quick tunnel; URL changes each restart)
+cloudflared tunnel --url http://localhost:3000
+# → https://<name>.trycloudflare.com
+
+# 4. Verify through the public URL
+curl https://<name>.trycloudflare.com/api/health
+# {"status":"ok","ollama":true,"modelAvailable":true,"model":"gemma3:4b"}
+```
+
+Restart: repeat steps 1–3 (tunnel URL changes; update the demo link).
+Caveats: quick tunnels have no uptime guarantee; keep the Mac awake and on
+the same network path; Ollama stays bound to localhost (never exposed).
+For a stable URL + production use, follow the VPS runbook above instead.
