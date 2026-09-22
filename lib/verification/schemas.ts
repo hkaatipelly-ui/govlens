@@ -11,7 +11,7 @@ export const VERIFICATION_STATUSES = [
 export type VerificationStatus = (typeof VERIFICATION_STATUSES)[number];
 
 export const ocrCleanupSchema = z.object({
-  cleanedText: z.string().trim().max(20000),
+  cleanedText: z.string().trim(),
   language: z.string().trim().max(16).default("en"),
   confidence: z.number().min(0).max(1).default(0.5),
   warnings: z.array(z.string().trim().max(300)).max(10).default([]),

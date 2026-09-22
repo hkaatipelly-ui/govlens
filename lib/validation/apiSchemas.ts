@@ -1,7 +1,9 @@
 /** Request validation for all /api routes (server-only). */
 import { z } from "zod";
 
-const textField = z.string().trim().min(1).max(20000);
+// NOTE: extracted document text has NO application character ceiling — large
+// documents are preserved in full. (No .max() here by design.)
+const textField = z.string().trim().min(1);
 
 export const analyzeRequestSchema = z.object({
   text: textField,
@@ -17,7 +19,7 @@ export const askRequestSchema = z.object({
   sessionId: z.string().trim().min(1).max(128).optional(),
   question: z.string().trim().min(1).max(2000),
   // Compat: older clients send documentText instead of sessionId.
-  documentText: z.string().trim().max(20000).optional(),
+  documentText: z.string().trim().optional(),
   language: z.enum(["en", "te", "hi"]).optional().default("en"),
 });
 
@@ -29,7 +31,7 @@ export const translateRequestSchema = z.object({
 export const createCaseRequestSchema = z.object({
   sessionId: z.string().trim().min(1).max(128).optional(),
   // Full-payload clients (older frontend) may send everything directly.
-  documentText: z.string().trim().max(20000).optional(),
+  documentText: z.string().trim().optional(),
   title: z.string().trim().max(300).optional(),
   language: z.enum(["en", "te", "hi"]).optional(),
   userNote: z.string().trim().max(2000).optional(),

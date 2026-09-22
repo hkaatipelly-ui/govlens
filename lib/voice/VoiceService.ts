@@ -22,6 +22,11 @@ export interface VoiceService {
     onError?: (msg: string) => void
   ): () => void;
   speak(text: string, lang: VoiceLang): void;
+  speakWithEvents(
+    text: string,
+    lang: VoiceLang,
+    handlers: { onend?: () => void; onerror?: () => void }
+  ): void;
   stopSpeaking(): void;
 }
 
@@ -75,7 +80,19 @@ class BrowserVoiceService implements VoiceService {
   }
 
   speak(text: string, lang: VoiceLang): void {
-    if (!this.isSynthesisSupported()) return;
+    this.speakWithEvents(text, lang, {});
+  }
+
+  /** Speak with lifecycle callbacks (used for Listen/Stop state). Same speech system. */
+  speakWithEvents(
+    text: string,
+    lang: VoiceLang,
+    handlers: { onend?: () => void; onerror?: () => void }
+  ): void {
+    if (!this.isSynthesisSupported()) {
+      handlers.onerror?.();
+      return;
+    }
     window.speechSynthesis.cancel();
     const utter = new SpeechSynthesisUtterance(text);
     utter.lang = VOICE_LOCALES[lang];
@@ -86,6 +103,8 @@ class BrowserVoiceService implements VoiceService {
       voices.find((v) => v.lang?.toLowerCase().startsWith(want.split("-")[0])) ??
       voices.find((v) => v.lang?.toLowerCase().startsWith("en"));
     if (match) utter.voice = match;
+    utter.onend = () => handlers.onend?.();
+    utter.onerror = () => handlers.onerror?.();
     window.speechSynthesis.speak(utter);
   }
 

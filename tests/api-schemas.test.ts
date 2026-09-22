@@ -13,8 +13,15 @@ describe("API request validation", () => {
     expect(analyzeRequestSchema.safeParse({ text: "ack receipt" }).success).toBe(true);
   });
 
-  it("analyze rejects oversized payloads", () => {
-    expect(analyzeRequestSchema.safeParse({ text: "x".repeat(20001) }).success).toBe(false);
+  it("extracted text has NO application character ceiling", () => {
+    const big = "Acknowledgement receipt. ".repeat(1200); // ~30,000 chars
+    expect(big.length).toBeGreaterThan(25000);
+    expect(analyzeRequestSchema.safeParse({ text: big }).success).toBe(true);
+    expect(askRequestSchema.safeParse({ question: "q", documentText: big }).success).toBe(true);
+  });
+
+  it("analyze accepts large payloads (no application text ceiling)", () => {
+    expect(analyzeRequestSchema.safeParse({ text: "x".repeat(20001) }).success).toBe(true);
   });
 
   it("ask requires a question", () => {
