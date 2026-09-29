@@ -179,3 +179,29 @@ export async function apiSourceMetadata(ids: string[]): Promise<{ sources: Gover
   });
   return json(res);
 }
+
+// --- Caseworker (server-authorized; citizen endpoints stay owner-scoped) ---
+
+export async function apiCaseworkerLogin(code: string): Promise<{ ok: boolean }> {
+  const res = await fetch("/api/caseworker/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+  });
+  return json(res);
+}
+
+export async function apiCaseworkerStatus(): Promise<{ authenticated: boolean }> {
+  const res = await fetch("/api/caseworker/login", { cache: "no-store" });
+  return json(res);
+}
+
+export async function apiListAllCases(): Promise<{ cases: Case[] }> {
+  const res = await fetch("/api/caseworker/cases", { cache: "no-store" });
+  return json(res);
+}
+
+export async function apiGetAnyCase(id: string): Promise<{ case: Case }> {
+  const res = await fetch(`/api/caseworker/cases/${id}`, { cache: "no-store" });
+  return json(res);
+}

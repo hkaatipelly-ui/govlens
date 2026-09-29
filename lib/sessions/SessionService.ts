@@ -36,14 +36,19 @@ export class SessionService {
     sessionId?: string;
     fileName?: string | null;
     fileType?: string | null;
+    ownerId: string;
   }): Session {
     const id = input.sessionId ?? newId();
-    const existing = this.get(id);
+    // Ownership check on reuse: never attach a new document to someone else's session.
+    const existing = this.get(id, input.ownerId);
     if (existing && existing.documentText === input.documentText) return existing;
+    if (this.get(id) && !existing) {
+      throw new Error("Session belongs to a different user.");
+    }
     this.db
       .prepare(
-        `INSERT OR REPLACE INTO sessions (id, document_text, ocr_json, extraction_json, source_ids_json, language, created_at, file_name, file_type)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT OR REPLACE INTO sessions (id, document_text, ocr_json, extraction_json, source_ids_json, language, created_at, file_name, file_type, owner_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -54,13 +59,17 @@ export class SessionService {
         input.language,
         existing?.createdAt ?? nowIso(),
         input.fileName ?? existing?.fileName ?? null,
-        input.fileType ?? existing?.fileType ?? null
+        input.fileType ?? existing?.fileType ?? null,
+        input.ownerId
       );
-    return this.get(id)!;
+    return this.get(id, input.ownerId)!;
   }
 
-  get(id: string): Session | null {
-    const row = this.db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(id);
+  /** If ownerId is given, only that owner's session is returned (else null → 404). */
+  get(id: string, ownerId?: string): Session | null {
+    const row = ownerId
+      ? this.db.prepare(`SELECT * FROM sessions WHERE id = ? AND owner_id = ?`).get(id, ownerId)
+      : this.db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(id);
     if (!row) return null;
     return {
       id: String(row.id),
@@ -82,7 +91,8 @@ export class SessionService {
     extraction: DocumentExtraction,
     sourceIds: string[],
     verification?: Verification | null,
-    explanation?: Explanation | null
+    explanation?: Explanation | null,
+    ownerId?: string
   ): void {
     this.db
       .prepare(
@@ -97,43 +107,47 @@ export class SessionService {
       );
     this.db
       .prepare(
-        `INSERT INTO document_extractions (id, session_id, extraction_json, verified, created_at)
-         VALUES (?, ?, ?, ?, ?)`
+        `INSERT INTO document_extractions (id, session_id, extraction_json, verified, created_at, owner_id)
+         VALUES (?, ?, ?, ?, ?, ?)`
       )
-      .run(newId(), id, JSON.stringify(extraction), extraction.sourceIds.length > 0 ? 1 : 0, nowIso());
+      .run(newId(), id, JSON.stringify(extraction), extraction.sourceIds.length > 0 ? 1 : 0, nowIso(), ownerId ?? null);
   }
 
   saveDocument(
     sessionId: string,
-    doc: { rawText: string; cleanedText: string; language: string; confidence: number }
+    doc: { rawText: string; cleanedText: string; language: string; confidence: number },
+    ownerId: string
   ): void {
     this.db
       .prepare(
-        `INSERT INTO documents (id, session_id, raw_text, cleaned_text, language, confidence, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO documents (id, session_id, raw_text, cleaned_text, language, confidence, created_at, owner_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(newId(), sessionId, doc.rawText, doc.cleanedText, doc.language, doc.confidence, nowIso());
+      .run(newId(), sessionId, doc.rawText, doc.cleanedText, doc.language, doc.confidence, nowIso(), ownerId);
     this.db
       .prepare(`UPDATE sessions SET ocr_json = ? WHERE id = ?`)
       .run(JSON.stringify(doc), sessionId);
   }
 
-  addMessage(sessionId: string, msg: ConversationMessage): void {
+  addMessage(sessionId: string, msg: ConversationMessage, ownerId: string): void {
     this.db
       .prepare(
-        `INSERT INTO conversation_messages (session_id, role, content, grounded, created_at)
-         VALUES (?, ?, ?, ?, ?)`
+        `INSERT INTO conversation_messages (session_id, role, content, grounded, created_at, owner_id)
+         VALUES (?, ?, ?, ?, ?, ?)`
       )
       .run(
         sessionId,
         msg.role,
         msg.content,
         msg.grounded == null ? null : msg.grounded ? 1 : 0,
-        nowIso()
+        nowIso(),
+        ownerId
       );
   }
 
-  history(sessionId: string): ConversationMessage[] {
+  /** History is only returned for a session the owner owns (verified by caller via get). */
+  history(sessionId: string, ownerId?: string): ConversationMessage[] {
+    if (ownerId && !this.get(sessionId, ownerId)) return [];
     return this.db
       .prepare(`SELECT role, content, grounded FROM conversation_messages WHERE session_id = ? ORDER BY id ASC`)
       .all(sessionId)

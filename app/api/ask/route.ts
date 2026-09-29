@@ -4,6 +4,7 @@ import { getSessionService } from "@/lib/sessions/SessionService";
 import { getKnowledgeEngine } from "@/lib/knowledge/LocalKnowledgeEngine";
 import { getAIEngine, AIEngineUnavailableError } from "@/lib/ai/OllamaGemmaEngine";
 import { getSourceService } from "@/lib/sources/SourceService";
+import { getOrCreateUserId } from "@/lib/auth/identity";
 
 /**
  * POST /api/ask — ONE grounded Q&A model call, scoped to a session.
@@ -24,23 +25,25 @@ export async function POST(req: Request) {
 
   try {
     const sessions = getSessionService();
+    const ownerId = getOrCreateUserId();
     let docText = documentText ?? "";
     let lang = language;
     let extractionSummary: string | undefined;
     let history: Array<{ role: "user" | "assistant"; content: string }> | undefined;
 
     if (sessionId) {
-      const session = sessions.get(sessionId);
+      // Session ownership enforced server-side: another user's sessionId → 404.
+      const session = sessions.get(sessionId, ownerId);
       if (!session) {
         return NextResponse.json(
           { error: "Unknown session. Analyze the document again to start a new session." },
-          { status: 400 }
+          { status: 404 }
         );
       }
       docText = session.documentText;
       lang = session.language as typeof lang;
       extractionSummary = session.extraction?.summary;
-      history = sessions.history(sessionId).map((m) => ({ role: m.role, content: m.content }));
+      history = sessions.history(sessionId, ownerId).map((m) => ({ role: m.role, content: m.content }));
     }
     if (!docText.trim()) {
       return NextResponse.json(
@@ -81,8 +84,8 @@ export async function POST(req: Request) {
     });
 
     if (sessionId) {
-      sessions.addMessage(sessionId, { role: "user", content: question, grounded: null });
-      sessions.addMessage(sessionId, { role: "assistant", content: answer, grounded });
+      sessions.addMessage(sessionId, { role: "user", content: question, grounded: null }, ownerId);
+      sessions.addMessage(sessionId, { role: "assistant", content: answer, grounded }, ownerId);
     }
 
     const sources = await getSourceService().getSources(evidence.map((h) => h.documentId));

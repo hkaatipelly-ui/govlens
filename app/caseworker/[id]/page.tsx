@@ -6,20 +6,38 @@ import { notFound } from "next/navigation";
 import Breadcrumb from "@/app/components/Breadcrumb";
 import StatusBadge from "@/app/components/StatusBadge";
 import CaseStatusUpdater from "@/app/components/CaseStatusUpdater";
-import { apiGetCase, type Case, type CaseStatus } from "@/app/services/api";
+import { apiGetAnyCase, type Case, type CaseStatus } from "@/app/services/api";
 
-/** Case detail reads GET /api/cases/:id (never the DB directly). */
+/** Case detail reads GET /api/caseworker/cases/:id (caseworker-authorized). */
 export default function CaseDetailPage({ params }: { params: { id: string } }) {
   const [caseData, setCaseData] = useState<Case | null | undefined>(undefined);
+  const [denied, setDenied] = useState(false);
 
   useEffect(() => {
-    apiGetCase(params.id)
+    apiGetAnyCase(params.id)
       .then((r) => setCaseData(r.case))
       .catch((e) => {
-        if (e instanceof Error && /404|not found/i.test(e.message)) setCaseData(null);
+        if (e instanceof Error && /401|authentication/i.test(e.message)) setDenied(true);
         else setCaseData(null);
       });
   }, [params.id]);
+
+  if (denied) {
+    return (
+      <main id="main-content">
+        <Breadcrumb items={[{ label: "Home", href: "/" }, { label: "Caseworker", href: "/caseworker" }]} />
+        <div className="gov-container mt-2 pb-6">
+          <div className="gov-card border-t-4 border-t-gov-navy p-6 text-center">
+            <p className="text-lg font-extrabold text-gov-navy">🔒 Caseworker access required</p>
+            <p className="mt-1 text-sm text-gov-muted">
+              Enter the access code on the caseworker dashboard to open this file.
+            </p>
+            <Link href="/caseworker" className="gov-btn-primary mt-3">Go to Caseworker Login</Link>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   if (caseData === undefined) {
     return (

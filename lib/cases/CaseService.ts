@@ -56,6 +56,7 @@ export interface CreateCaseInput {
   qa?: CaseQA[];
   fileName?: string | null;
   fileType?: string | null;
+  ownerId: string;
 }
 
 function parseJson<T>(raw: unknown, fallback: T): T {
@@ -111,13 +112,13 @@ export class CaseService {
       `${ex.documentType}${ex.referenceNumber ? ` — ${ex.referenceNumber}` : ""}`;
     this.db
       .prepare(
-        `INSERT INTO cases
+         `INSERT INTO cases
          (id, session_id, status, created_at, updated_at, title, document_type, language,
           summary, deadline, amount, reference_number, required_documents_json,
           required_actions_json, warning_signals_json, source_ids_json,
           original_text, evidence_json, checklist_json,
-          verification_json, explanation_json, qa_json, file_name, file_type)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          verification_json, explanation_json, qa_json, file_name, file_type, owner_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -143,7 +144,8 @@ export class CaseService {
         input.explanation ? JSON.stringify(input.explanation) : null,
         JSON.stringify(input.qa ?? []),
         input.fileName ?? null,
-        input.fileType ?? null
+        input.fileType ?? null,
+        input.ownerId
       );
     const link = this.db.prepare(
       `INSERT OR IGNORE INTO case_sources (case_id, source_id) VALUES (?, ?)`
@@ -161,22 +163,47 @@ export class CaseService {
     for (const item of input.checklist) {
       itemStmt.run(newId(), id, item.label, item.detail ?? null, item.sourceId ?? null, item.done ? 1 : 0);
     }
+    const ownerStmt = this.db.prepare(`UPDATE checklist_items SET owner_id = ? WHERE case_id = ?`);
+    try {
+      ownerStmt.run(input.ownerId, id);
+    } catch {
+      /* owner column backfilled by migration */
+    }
     return this.get(id)!;
   }
 
-  list(): Case[] {
+  /** Citizen list: ONLY the owner's cases. Caseworkers use listAll(). */
+  list(ownerId: string): Case[] {
+    return this.db
+      .prepare(`SELECT * FROM cases WHERE owner_id = ? ORDER BY created_at DESC`)
+      .all(ownerId)
+      .map(rowToCase);
+  }
+
+  /** Full register for authenticated caseworkers only (route-enforced). */
+  listAll(): Case[] {
     return this.db
       .prepare(`SELECT * FROM cases ORDER BY created_at DESC`)
       .all()
       .map(rowToCase);
   }
 
-  get(id: string): Case | null {
-    const row = this.db.prepare(`SELECT * FROM cases WHERE id = ?`).get(id);
+  /**
+   * If ownerId is given, only that owner's case is returned (else null → 404,
+   * never revealing another user's case). Caseworkers pass allowAny=true
+   * only after route-level authorization.
+   */
+  get(id: string, ownerId?: string, allowAny = false): Case | null {
+    const row =
+      allowAny || !ownerId
+        ? this.db.prepare(`SELECT * FROM cases WHERE id = ?`).get(id)
+        : this.db.prepare(`SELECT * FROM cases WHERE id = ? AND owner_id = ?`).get(id, ownerId);
     return row ? rowToCase(row) : null;
   }
 
-  updateStatus(id: string, status: CaseStatus): Case | null {
+  updateStatus(id: string, status: CaseStatus, ownerId?: string): Case | null {
+    const current = this.get(id, ownerId, !ownerId);
+    if (!current) return null;
     this.db
       .prepare(`UPDATE cases SET status = ?, updated_at = ? WHERE id = ?`)
       .run(status, nowIso(), id);

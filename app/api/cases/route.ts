@@ -6,6 +6,7 @@ import { getKnowledgeEngine } from "@/lib/knowledge/LocalKnowledgeEngine";
 import { getActionEngine } from "@/lib/actions/ActionEngine";
 import { getAIEngine } from "@/lib/ai/OllamaGemmaEngine";
 import { validateExtractionJson } from "@/lib/extraction/schemas";
+import { getOrCreateUserId } from "@/lib/auth/identity";
 
 /**
  * GET /api/cases — list all cases (newest first).
@@ -14,7 +15,9 @@ import { validateExtractionJson } from "@/lib/extraction/schemas";
  */
 export async function GET() {
   try {
-    return NextResponse.json({ cases: getCaseService().list() });
+    // Citizen list: ONLY the current anonymous owner's cases (server-enforced).
+    const ownerId = getOrCreateUserId();
+    return NextResponse.json({ cases: getCaseService().list(ownerId) });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Could not list cases." },
@@ -37,14 +40,16 @@ export async function POST(req: Request) {
     const raw = body as Record<string, unknown>;
     const sessions = getSessionService();
     const cases = getCaseService();
+    const ownerId = getOrCreateUserId();
 
     // Path A: canonical — build from a stored session.
     if (parsed.data.sessionId) {
-      const session = sessions.get(parsed.data.sessionId);
+      // Session ownership enforced: another user's sessionId → 404.
+      const session = sessions.get(parsed.data.sessionId, ownerId);
       if (!session || !session.extraction) {
         return NextResponse.json(
           { error: "Unknown or unanalyzed session. Analyze the document first." },
-          { status: 400 }
+          { status: 404 }
         );
       }
       const kb = getKnowledgeEngine();
@@ -71,9 +76,10 @@ export async function POST(req: Request) {
       } catch {
         /* rule-based checklist stands on its own */
       }
-      const history = sessions.history(session.id);
+      const history = sessions.history(session.id, ownerId);
       const created = cases.create({
         sessionId: session.id,
+        ownerId,
         title: parsed.data.title,
         language: parsed.data.language ?? session.language,
         originalText: session.documentText,
@@ -160,6 +166,7 @@ export async function POST(req: Request) {
       }));
     const created = cases.create({
       sessionId: `legacy-${Date.now()}`,
+      ownerId,
       language:
         parsed.data.language ??
         (typeof legacy.language === "string" ? legacy.language : undefined) ??

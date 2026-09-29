@@ -3,6 +3,7 @@ import { openTestDatabase } from "@/lib/db/database";
 import { migrate } from "@/lib/db/migrations";
 import { getSessionService } from "@/lib/sessions/SessionService";
 import { getCaseService } from "@/lib/cases/CaseService";
+import { verifyCaseworkerCode } from "@/lib/auth/identity";
 import { SourceService } from "@/lib/sources/SourceService";
 import { LocalKnowledgeEngine } from "@/lib/knowledge/LocalKnowledgeEngine";
 import type { DocumentExtraction } from "@/lib/extraction/schemas";
@@ -31,24 +32,38 @@ describe("session isolation", () => {
     migrate(db);
     const sessions = getSessionService(db);
 
-    const a = sessions.create({ documentText: "Document A text", language: "en" });
-    const b = sessions.create({ documentText: "Document B text", language: "te" });
+    const a = sessions.create({ documentText: "Document A text", language: "en", ownerId: "owner-a" });
+    const b = sessions.create({ documentText: "Document B text", language: "te", ownerId: "owner-b" });
 
-    sessions.addMessage(a.id, { role: "user", content: "deadline?", grounded: null });
-    sessions.addMessage(a.id, { role: "assistant", content: "7 days", grounded: true });
+    sessions.addMessage(a.id, { role: "user", content: "deadline?", grounded: null }, "owner-a");
+    sessions.addMessage(a.id, { role: "assistant", content: "7 days", grounded: true }, "owner-a");
 
     // B sees none of A's context
-    expect(sessions.get(b.id)!.documentText).toBe("Document B text");
-    expect(sessions.history(b.id)).toEqual([]);
-    expect(sessions.history(a.id)).toHaveLength(2);
+    expect(sessions.get(b.id, "owner-b")!.documentText).toBe("Document B text");
+    expect(sessions.history(b.id, "owner-b")).toEqual([]);
+    expect(sessions.history(a.id, "owner-a")).toHaveLength(2);
+  });
+
+  it("owner scoping blocks cross-user session access", () => {
+    const db = openTestDatabase();
+    migrate(db);
+    const sessions = getSessionService(db);
+    const a = sessions.create({ documentText: "Secret A", language: "en", ownerId: "owner-a" });
+    // Another owner cannot read it (null → route returns 404)
+    expect(sessions.get(a.id, "owner-b")).toBeNull();
+    expect(sessions.history(a.id, "owner-b")).toEqual([]);
+    // And cannot hijack the session id for a new document
+    expect(() =>
+      sessions.create({ documentText: "Other text", language: "en", sessionId: a.id, ownerId: "owner-b" })
+    ).toThrow();
   });
 
   it("re-analyzing the same document reuses the session id", () => {
     const db = openTestDatabase();
     migrate(db);
     const sessions = getSessionService(db);
-    const first = sessions.create({ documentText: "Same text", language: "en" });
-    const second = sessions.create({ documentText: "Same text", language: "en", sessionId: first.id });
+    const first = sessions.create({ documentText: "Same text", language: "en", ownerId: "o" });
+    const second = sessions.create({ documentText: "Same text", language: "en", sessionId: first.id, ownerId: "o" });
     expect(second.id).toBe(first.id);
   });
 });
@@ -75,6 +90,7 @@ describe("case service", () => {
 
     const created = cases.create({
       sessionId: "sess-1",
+      ownerId: "owner-a",
       originalText: "Ack receipt MSC1",
       extraction: extraction(),
       evidence: [],
@@ -84,11 +100,21 @@ describe("case service", () => {
     expect(created.title).toContain("MSC1");
     expect(created.requiredDocuments).toEqual(["Aadhaar card"]);
 
-    expect(cases.list()).toHaveLength(1);
-    expect(cases.get(created.id)!.summary).toContain("Acknowledgement");
+    // Owner-scoped list/detail; another owner sees nothing (null → 404)
+    expect(cases.list("owner-a")).toHaveLength(1);
+    expect(cases.list("owner-b")).toHaveLength(0);
+    expect(cases.get(created.id, "owner-a")!.summary).toContain("Acknowledgement");
+    expect(cases.get(created.id, "owner-b")).toBeNull();
+    // Caseworker view still sees everything
+    expect(cases.listAll()).toHaveLength(1);
 
-    const updated = cases.updateStatus(created.id, "completed");
+    const updated = cases.updateStatus(created.id, "completed", "owner-a");
     expect(updated!.status).toBe("completed");
-    expect(cases.get("missing")).toBeNull();
+    expect(cases.updateStatus(created.id, "open", "owner-b")).toBeNull();
+    expect(cases.get("missing", "owner-a")).toBeNull();
+  });
+
+  it("caseworker code verification is timing-safe and rejects wrong codes", () => {
+    expect(verifyCaseworkerCode("definitely-wrong-code")).toBe(false);
   });
 });

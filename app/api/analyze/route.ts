@@ -5,6 +5,7 @@ import { getAIEngine, AIEngineUnavailableError, AITimeoutError } from "@/lib/ai/
 import { GovernmentDocumentVerificationService } from "@/lib/verification/GovernmentDocumentVerificationService";
 import { getActionEngine } from "@/lib/actions/ActionEngine";
 import { fillExtractionGaps, ensureExplanation } from "@/lib/extraction/postprocess";
+import { getOrCreateUserId } from "@/lib/auth/identity";
 import { getSourceService } from "@/lib/sources/SourceService";
 
 /**
@@ -36,12 +37,14 @@ export async function POST(req: Request) {
       };
       try {
         const sessions = getSessionService();
+        const ownerId = getOrCreateUserId();
         const session = sessions.create({
           documentText: text,
           language,
           sessionId: requestedSession,
           fileName: fileName ?? undefined,
           fileType: fileType ?? undefined,
+          ownerId,
         });
 
         // 1. OCR cleanup + normalization (Gemma).
@@ -54,7 +57,7 @@ export async function POST(req: Request) {
           cleanedText: cleaned,
           language: cleanup.language,
           confidence: cleanup.confidence,
-        });
+        }, ownerId);
 
         // 2a. Type check (stages A+B) and 2b. retrieval — independent, in parallel.
         send({ stage: "checking-type", label: "Checking document type" });
@@ -127,7 +130,7 @@ export async function POST(req: Request) {
           }
         }
 
-        sessions.saveAnalysis(session.id, extraction, extraction.sourceIds, verification, explanation);
+        sessions.saveAnalysis(session.id, extraction, extraction.sourceIds, verification, explanation, ownerId);
 
         const checklist = getActionEngine().buildChecklist(extraction, evidence);
         const sources = await getSourceService().getSources(extraction.sourceIds);

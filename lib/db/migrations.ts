@@ -128,16 +128,46 @@ export function migrate(db: Database): void {
     `ALTER TABLE sessions ADD COLUMN explanation_json TEXT`,
     `ALTER TABLE sessions ADD COLUMN file_name TEXT`,
     `ALTER TABLE sessions ADD COLUMN file_type TEXT`,
+    `ALTER TABLE sessions ADD COLUMN owner_id TEXT`,
+    `ALTER TABLE documents ADD COLUMN owner_id TEXT`,
+    `ALTER TABLE document_extractions ADD COLUMN owner_id TEXT`,
+    `ALTER TABLE conversation_messages ADD COLUMN owner_id TEXT`,
     `ALTER TABLE cases ADD COLUMN verification_json TEXT`,
     `ALTER TABLE cases ADD COLUMN explanation_json TEXT`,
     `ALTER TABLE cases ADD COLUMN qa_json TEXT NOT NULL DEFAULT '[]'`,
     `ALTER TABLE cases ADD COLUMN file_name TEXT`,
     `ALTER TABLE cases ADD COLUMN file_type TEXT`,
+    `ALTER TABLE cases ADD COLUMN owner_id TEXT`,
+    `ALTER TABLE checklist_items ADD COLUMN owner_id TEXT`,
   ]) {
     try {
       db.exec(ddl);
     } catch {
       /* column already exists */
     }
+  }
+  // Ownership backfill for pre-fix records (idempotent): attribute to the
+  // clearly-named prototype owner instead of deleting working data.
+  // NOTE: cases table may predate the canonical schema on very old DBs; the
+  // legacy reset above handles that before these columns are referenced.
+  for (const table of [
+    "sessions",
+    "documents",
+    "document_extractions",
+    "conversation_messages",
+    "cases",
+    "checklist_items",
+  ]) {
+    try {
+      db.exec(`UPDATE ${table} SET owner_id = 'prototype-admin' WHERE owner_id IS NULL`);
+    } catch {
+      /* table/column absent */
+    }
+  }
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_cases_owner ON cases(owner_id)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_owner ON sessions(owner_id)`);
+  } catch {
+    /* indexes exist */
   }
 }
