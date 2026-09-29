@@ -11,6 +11,10 @@ import { buildNormalizedDocument } from "@/lib/documents/normalized";
 import { classifyDocument, extractEntities, extractClaims, buildEvidence } from "@/lib/analysis/foundation";
 import { buildQuestionGraph, buildChronology, detectContradictions } from "@/lib/analysis/deep";
 import { getAnalysisStore } from "@/lib/analysis/store";
+import { routeClaims, ensureAdapters } from "@/lib/verification/pipeline";
+import { listAdapters } from "@/lib/verification/adapters";
+import { getVerificationStore } from "@/lib/verification/store";
+import type { ClaimRoute } from "@/lib/verification/pipeline";
 
 /**
  * POST /api/analyze — full AI pipeline with honest server-sent progress:
@@ -140,6 +144,7 @@ export async function POST(req: Request) {
         // classify → entities → claims → evidence, persisted owner-scoped.
         // Additive only — existing pipeline output is unchanged.
         let foundation: { documentId: string; classification: string; entities: number; claims: number; evidence: number } | null = null;
+        let verificationRoutes: ClaimRoute[] = [];
         try {
           const normalized = buildNormalizedDocument({
             ownerId,
@@ -170,6 +175,19 @@ export async function POST(req: Request) {
             claims,
             evidenceObjs
           );
+          // Verification routing (no external calls): verifiable claims →
+          // adapters → user-assisted lookup requests, sources registered.
+          try {
+            const routes = routeClaims(normalized.documentId, claims);
+            ensureAdapters();
+            getVerificationStore().saveSources(
+              ownerId,
+              listAdapters().map((a) => ({ adapterId: a.adapterId, authority: a.authority, sourceUrl: a.sourceUrl }))
+            );
+            verificationRoutes = routes;
+          } catch (e) {
+            console.warn("[GovLens] verification routing failed (non-fatal):", e instanceof Error ? e.message : e);
+          }
         } catch (e) {
           console.warn("[GovLens] foundation build failed (non-fatal):", e instanceof Error ? e.message : e);
         }
@@ -245,6 +263,7 @@ export async function POST(req: Request) {
           grounded,
           foundation,
           deepAnalysis,
+          verificationRoutes,
           // legacy aliases
           analysis: {
             documentType: extraction.documentType,

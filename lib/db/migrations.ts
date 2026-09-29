@@ -275,6 +275,41 @@ export function migrate(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_ar_session ON analysis_reports(session_id);
     CREATE INDEX IF NOT EXISTS idx_af_report ON analysis_findings(report_id);
   `);
+  // Verification-engine tables (additive).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS verification_sources (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      adapter_id TEXT NOT NULL,
+      authority TEXT NOT NULL,
+      source_url TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS verification_results (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      claim_id TEXT NOT NULL DEFAULT '',
+      source_id TEXT NOT NULL,
+      field TEXT NOT NULL,
+      document_value TEXT NOT NULL,
+      external_value TEXT NOT NULL DEFAULT '',
+      comparison TEXT NOT NULL DEFAULT 'not_compared',
+      status TEXT NOT NULL,
+      explanation TEXT NOT NULL,
+      retrieved_at TEXT NOT NULL,
+      source_url TEXT,
+      source_type TEXT NOT NULL DEFAULT 'user_provided',
+      evidence_id TEXT NOT NULL DEFAULT '',
+      human_review_required INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_vs_owner ON verification_sources(owner_id);
+    CREATE INDEX IF NOT EXISTS idx_vr_doc ON verification_results(document_id);
+    CREATE INDEX IF NOT EXISTS idx_vr_owner ON verification_results(owner_id);
+    CREATE INDEX IF NOT EXISTS idx_vr_claim ON verification_results(claim_id);
+    CREATE INDEX IF NOT EXISTS idx_vr_status ON verification_results(status);
+  `);
   // Additive columns for newer features (idempotent).
   for (const ddl of [
     `ALTER TABLE sessions ADD COLUMN verification_json TEXT`,

@@ -40,7 +40,7 @@ const RULES: CategoryRule[] = [
 const DATE_RE = /\b(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})\b/g;
 const MONEY_RE = /\bRs\.?\s?([\d,]+(?:\.\d{1,2})?)\b/gi;
 const REF_RE = /\b([A-Z]{2,5}\d{4,12}[A-Z0-9-]*)\b/g;
-const SURVEY_RE = /\bSurvey\s*(?:No\.?|Number)?\s*[:\-]?\s*(\d+[A-Z]?(?:\/\d+[A-Z]?)?)\b/gi;
+const SURVEY_RE = /\bSurvey\s*(?:No\.?|Number)?\s*[:\-]?\s*(\d+[A-Z]?(?:\/[A-Z0-9]+)?)\b/gi;
 const KHATA_RE = /\bKhata\s*(?:No\.?|Number)?\s*[:\-]?\s*([A-Z0-9/-]+)\b/gi;
 const PHONE_RE = /\b(?:\+91[\s-]?)?[6-9]\d{4}[\s-]?\d{5}\b/g;
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
@@ -153,12 +153,23 @@ export function extractEntities(doc: NormalizedDocument): Entity[] {
 
 const MATERIAL_RE = /\b(deadline|due|expir|must|shall|required|mandatory|fee|rs\.?|penalt|notice|order|summon|hearing|comply)\b/i;
 
+const ABBREV = /\b(?:No|Rs|Mr|Mrs|Ms|Dr|St|vs|Adv|Sr|Jr|Col|Gen|Dt|Ref|Art|Sec|Cl|Sch|Anx|Fig|Eq|Vol|Ch|Pt|Rs)\.$/;
+
 function splitSentences(text: string): string[] {
-  return text
-    .replace(/\s+/g, " ")
-    .split(/(?<=[.!?])\s+(?=[A-Z0-9(])/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 20 && s.length <= 1000);
+  const out: string[] = [];
+  const parts = text.replace(/\s+/g, " ").split(/(?<=[.!?])\s+(?=[A-Z0-9(])/);
+  let current = "";
+  for (const part of parts) {
+    current = current ? `${current} ${part}` : part;
+    // Don't split after abbreviations like "No.", "Rs.", "Mr.".
+    if (ABBREV.test(current) && part.length < 120) continue;
+    if (current.length > 20) {
+      out.push(current.trim());
+      current = "";
+    }
+  }
+  if (current.trim().length > 20) out.push(current.trim());
+  return out.filter((s) => s.length <= 1000);
 }
 
 export function extractClaims(doc: NormalizedDocument, entities: Entity[]): Claim[] {
