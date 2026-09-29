@@ -1,5 +1,6 @@
 /** AIEngine interface — the ONLY contract the app uses for local AI. */
 import type { DocumentExtraction } from "../extraction/schemas";
+import type { DeepReport } from "../analysis/deep-schemas";
 import type {
   ActionPlan,
   Explanation,
@@ -61,6 +62,13 @@ export interface ActionPlanInput {
   evidence: KnowledgeHit[];
 }
 
+export interface DeepAnalysisInput {
+  documentText: string;
+  language: "en" | "te" | "hi";
+  questions: Array<{ questionId: string; dimension: string; question: string }>;
+  evidence: KnowledgeHit[];
+}
+
 export interface AnalysisResult {
   extraction: DocumentExtraction;
   /** True when official evidence supported the extraction. */
@@ -86,6 +94,8 @@ export interface AIEngine {
   translate(input: TranslationInput): Promise<TranslationResult>;
   generateActionPlan(input: ActionPlanInput): Promise<ActionPlan>;
   cleanupOcrText(input: CleanupInput): Promise<OcrCleanup>;
+  /** One structured pass: answer material questions + record findings. */
+  analyzeDeep(input: DeepAnalysisInput): Promise<DeepReport>;
 }
 
 export class AIEngineUnavailableError extends Error {

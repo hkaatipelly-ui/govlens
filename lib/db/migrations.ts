@@ -194,6 +194,87 @@ export function migrate(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_dev_doc ON document_evidence(document_id);
     CREATE INDEX IF NOT EXISTS idx_dev_owner ON document_evidence(owner_id);
   `);
+  // Deep-analysis tables (additive).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS analysis_questions (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      question_id TEXT NOT NULL,
+      parent_question_id TEXT,
+      dimension TEXT NOT NULL,
+      question TEXT NOT NULL,
+      target_claim_id TEXT,
+      importance TEXT NOT NULL DEFAULT 'relevant',
+      question_status TEXT NOT NULL DEFAULT 'unanswered',
+      answer TEXT NOT NULL DEFAULT '',
+      confidence REAL NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS analysis_answers (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      question_id TEXT NOT NULL,
+      answer TEXT NOT NULL,
+      confidence REAL NOT NULL DEFAULT 0.5
+    );
+
+    CREATE TABLE IF NOT EXISTS timelines (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      date TEXT NOT NULL,
+      event TEXT NOT NULL,
+      actor TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL DEFAULT 'document',
+      page INTEGER NOT NULL,
+      confidence REAL NOT NULL DEFAULT 0.5,
+      flag TEXT NOT NULL DEFAULT 'none'
+    );
+
+    CREATE TABLE IF NOT EXISTS contradictions (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      category TEXT NOT NULL,
+      claim_a TEXT NOT NULL,
+      claim_b TEXT NOT NULL,
+      severity TEXT NOT NULL DEFAULT 'relevant',
+      explanation TEXT NOT NULL,
+      verification_required TEXT NOT NULL DEFAULT ''
+    );
+
+    CREATE TABLE IF NOT EXISTS analysis_reports (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      executive_summary TEXT NOT NULL DEFAULT '',
+      missing_information_json TEXT NOT NULL DEFAULT '[]',
+      verification_requirements_json TEXT NOT NULL DEFAULT '[]',
+      unresolved_questions_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS analysis_findings (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      report_id TEXT NOT NULL REFERENCES analysis_reports(id),
+      title TEXT NOT NULL,
+      detail TEXT NOT NULL,
+      materiality TEXT NOT NULL DEFAULT 'relevant',
+      confidence REAL NOT NULL DEFAULT 0.5
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_aq_doc ON analysis_questions(document_id);
+    CREATE INDEX IF NOT EXISTS idx_aq_owner ON analysis_questions(owner_id);
+    CREATE INDEX IF NOT EXISTS idx_tl_doc ON timelines(document_id);
+    CREATE INDEX IF NOT EXISTS idx_cx_doc ON contradictions(document_id);
+    CREATE INDEX IF NOT EXISTS idx_cx_owner ON contradictions(owner_id);
+    CREATE INDEX IF NOT EXISTS idx_ar_session ON analysis_reports(session_id);
+    CREATE INDEX IF NOT EXISTS idx_af_report ON analysis_findings(report_id);
+  `);
   // Additive columns for newer features (idempotent).
   for (const ddl of [
     `ALTER TABLE sessions ADD COLUMN verification_json TEXT`,

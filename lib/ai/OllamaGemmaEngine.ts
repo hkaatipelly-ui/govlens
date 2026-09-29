@@ -20,6 +20,7 @@ import {
   type AnalysisResult,
   type AnswerResult,
   type CleanupInput,
+  type DeepAnalysisInput,
   type DocumentAnalysisInput,
   type ExplainInput,
   type ExtractInput,
@@ -46,6 +47,7 @@ import {
   type OcrCleanup,
   type Verification,
 } from "../verification/schemas";
+import { deepReportSchema, type DeepReport } from "../analysis/deep-schemas";
 import type { KnowledgeHit } from "../knowledge/KnowledgeEngine";
 
 export { AIEngineUnavailableError, AITimeoutError };
@@ -101,6 +103,8 @@ interface ChatOptions {
   /** Base64 images (no data: prefix) for Gemma vision input. */
   images?: string[];
   timeoutMs?: number;
+  /** Per-call output-token cap (defaults to NUM_PREDICT). */
+  numPredict?: number;
 }
 
 async function chatOllama(
@@ -120,7 +124,7 @@ async function chatOllama(
         model: ollamaModel(),
         stream: false,
         format: opts.format ?? "json",
-        options: { temperature: 0, num_predict: NUM_PREDICT },
+        options: { temperature: 0, num_predict: opts.numPredict ?? NUM_PREDICT },
         messages: [
           { role: "system", content: system },
           {
@@ -272,6 +276,28 @@ ${JSON.stringify(extraction).slice(0, 2500)}
 
 OFFICIAL EVIDENCE:
 ${evidenceBlock(evidence)}`;
+}
+
+export function buildDeepPrompt(
+  documentText: string,
+  questions: Array<{ questionId: string; dimension: string; question: string }>,
+  evidence: KnowledgeHit[],
+  replyLang: string
+): string {
+  const qList = questions
+    .slice(0, 24)
+    .map((q) => `- [${q.questionId}] (${q.dimension}) ${q.question}`)
+    .join("\n");
+  return `You are a senior document analyst. Answer the listed questions about the CURRENT document using ONLY the document and the official evidence. Separate facts found IN THE DOCUMENT from external evidence. Never fabricate missing information, portal records, or legal validity. If evidence is insufficient for a question, answer EXACTLY "Not established from the available document." Respond with ONLY JSON: {"executiveSummary": string (<=200 words), "answers": [{"questionId": string (one of the listed ids), "answer": string (<=120 words), "evidenceIds": string[], "confidence": number}], "findings": [{"title": string, "detail": string, "materiality": "informational"|"relevant"|"material"|"critical", "evidenceIds": string[], "confidence": number}], "missingInformation": string[], "verificationRequirements": string[], "unresolvedQuestions": string[] (ids)}. Reply in ${replyLang}.
+
+OFFICIAL EVIDENCE:
+${evidenceBlock(evidence)}
+
+CURRENT DOCUMENT:
+${documentText.slice(0, 3000)}
+
+QUESTIONS:
+${qList}`;
 }
 
 // JSON-schema formats for constrained decoding (extraction + explanation).
@@ -476,6 +502,36 @@ export class OllamaGemmaEngine implements AIEngine {
     );
     if (out) return { ...out, sourceIds: input.evidence.map((h) => h.documentId) };
     throw new Error("Action-plan generation returned an unexpected format.");
+  }
+
+  /** One structured deep-analysis pass: answers + findings (facts vs inference separated). */
+  async analyzeDeep(input: DeepAnalysisInput): Promise<DeepReport> {
+    const replyLang =
+      input.language === "hi" ? "Hindi" : input.language === "te" ? "Telugu" : "English";
+    // Focused question set: long lists overflow the output-token budget and
+    // truncate mid-JSON. Callers send material questions first; hard cap at 12.
+    const focused = input.questions.slice(0, 12);
+    const out = await validatedCall(
+      GROUND_RULES,
+      buildDeepPrompt(input.documentText, focused, input.evidence, replyLang),
+      (raw) => {
+        const parsed = safeJsonParse<unknown>(raw);
+        if (!parsed) return null;
+        const res = deepReportSchema.safeParse(parsed);
+        return res.success ? res.data : null;
+      },
+      { numPredict: Number(process.env.OLLAMA_NUM_PREDICT_DEEP ?? 1024) },
+      "GovLens/deep"
+    );
+    if (out) return out;
+    return {
+      executiveSummary: "",
+      answers: [],
+      findings: [],
+      missingInformation: [],
+      verificationRequirements: [],
+      unresolvedQuestions: input.questions.slice(0, 24).map((q) => q.questionId),
+    };
   }
 }
 

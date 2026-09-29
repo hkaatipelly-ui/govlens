@@ -9,6 +9,7 @@ import { getOrCreateUserId } from "@/lib/auth/identity";
 import { getSourceService } from "@/lib/sources/SourceService";
 import { buildNormalizedDocument } from "@/lib/documents/normalized";
 import { classifyDocument, extractEntities, extractClaims, buildEvidence } from "@/lib/analysis/foundation";
+import { buildQuestionGraph, buildChronology, detectContradictions } from "@/lib/analysis/deep";
 import { getAnalysisStore } from "@/lib/analysis/store";
 
 /**
@@ -173,6 +174,61 @@ export async function POST(req: Request) {
           console.warn("[GovLens] foundation build failed (non-fatal):", e instanceof Error ? e.message : e);
         }
 
+        // Deep analysis (deterministic graph/chronology/contradictions + ONE
+        // structured Gemma pass for material answers). Additive; failures degrade
+        // to empty deep payload without breaking the existing result.
+        let deepAnalysis: { questions: number; timelineEvents: number; contradictions: number; findings: number } | null = null;
+        try {
+          const normalized = buildNormalizedDocument({
+            ownerId,
+            sessionId: session.id,
+            sourceType: (fileType as "pdf" | "docx" | "jpeg" | "jpg" | "png" | undefined) ?? "text",
+            fileName: fileName ?? null,
+            language,
+            text: cleaned,
+          });
+          const cls = classifyDocument(normalized);
+          const ents = extractEntities(normalized);
+          const clms = extractClaims(normalized, ents);
+          const { roots, subquestions } = buildQuestionGraph(normalized, cls.documentType, clms, ents);
+          const timeline = buildChronology(normalized, ents);
+          const contradictions = detectContradictions(normalized, ents, clms);
+          const material = [...roots, ...subquestions]
+            .filter((q) => q.importance === "material" || q.importance === "critical")
+            .slice(0, 24);
+          let report;
+          try {
+            report = await engine.analyzeDeep({
+              documentText: cleaned,
+              language,
+              questions: material.map((q) => ({ questionId: q.questionId, dimension: q.dimension, question: q.question })),
+              evidence,
+            });
+          } catch (e) {
+            console.warn("[GovLens] deep Gemma pass failed, storing deterministic graph only:", e instanceof Error ? e.message : e);
+            report = {
+              executiveSummary: "",
+              answers: [],
+              findings: [],
+              missingInformation: [],
+              verificationRequirements: [],
+              unresolvedQuestions: material.map((q) => q.questionId),
+            };
+          }
+          deepAnalysis = getAnalysisStore().saveDeep(
+            normalized.documentId,
+            session.id,
+            ownerId,
+            roots,
+            subquestions,
+            timeline,
+            contradictions,
+            report
+          );
+        } catch (e) {
+          console.warn("[GovLens] deep analysis failed (non-fatal):", e instanceof Error ? e.message : e);
+        }
+
         const checklist = getActionEngine().buildChecklist(extraction, evidence);
         const sources = await getSourceService().getSources(extraction.sourceIds);
         const grounded = evidence.length > 0;
@@ -188,6 +244,7 @@ export async function POST(req: Request) {
           checklist,
           grounded,
           foundation,
+          deepAnalysis,
           // legacy aliases
           analysis: {
             documentType: extraction.documentType,
