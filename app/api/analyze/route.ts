@@ -14,6 +14,12 @@ import { getAnalysisStore } from "@/lib/analysis/store";
 import { routeClaims, ensureAdapters } from "@/lib/verification/pipeline";
 import { listAdapters } from "@/lib/verification/adapters";
 import { getVerificationStore } from "@/lib/verification/store";
+import {
+  isSchemeLike,
+  extractScheme,
+  buildEligibilityMatrix,
+  buildChecklist as buildSchemeChecklist,
+} from "@/lib/analysis/scheme";
 import type { ClaimRoute } from "@/lib/verification/pipeline";
 
 /**
@@ -247,6 +253,43 @@ export async function POST(req: Request) {
           console.warn("[GovLens] deep analysis failed (non-fatal):", e instanceof Error ? e.message : e);
         }
 
+        // Scheme analysis (deterministic, no extra model calls): activates for
+        // scheme-like documents only. Additive; failures are non-fatal.
+        let schemeAnalysis: {
+          schemeName: string | null;
+          requirements: number;
+          satisfied: number;
+          unknown: number;
+          unsatisfied: number;
+          missingDocuments: number;
+        } | null = null;
+        try {
+          const normalized = buildNormalizedDocument({
+            ownerId,
+            sessionId: session.id,
+            sourceType: (fileType as "pdf" | "docx" | "jpeg" | "jpg" | "png" | undefined) ?? "text",
+            fileName: fileName ?? null,
+            language,
+            text: cleaned,
+          });
+          const cls = classifyDocument(normalized);
+          if (isSchemeLike(cls.documentType, cleaned)) {
+            const scheme = extractScheme(cleaned, extraction, evidence);
+            const requirements = buildEligibilityMatrix(normalized.documentId, scheme, cleaned);
+            const docs = buildSchemeChecklist(normalized.documentId, scheme, cleaned);
+            schemeAnalysis = getAnalysisStore().saveScheme(
+              normalized.documentId,
+              session.id,
+              ownerId,
+              scheme,
+              requirements,
+              docs
+            );
+          }
+        } catch (e) {
+          console.warn("[GovLens] scheme analysis failed (non-fatal):", e instanceof Error ? e.message : e);
+        }
+
         const checklist = getActionEngine().buildChecklist(extraction, evidence);
         const sources = await getSourceService().getSources(extraction.sourceIds);
         const grounded = evidence.length > 0;
@@ -264,6 +307,7 @@ export async function POST(req: Request) {
           foundation,
           deepAnalysis,
           verificationRoutes,
+          schemeAnalysis,
           // legacy aliases
           analysis: {
             documentType: extraction.documentType,

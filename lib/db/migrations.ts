@@ -275,6 +275,53 @@ export function migrate(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_ar_session ON analysis_reports(session_id);
     CREATE INDEX IF NOT EXISTS idx_af_report ON analysis_findings(report_id);
   `);
+  // Scheme-analysis tables (additive).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS scheme_reports (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      scheme_name TEXT,
+      issuing_authority TEXT,
+      objective TEXT NOT NULL DEFAULT '',
+      deadline TEXT,
+      benefit TEXT NOT NULL DEFAULT '',
+      amount TEXT,
+      application_method TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS eligibility_requirements (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      report_id TEXT NOT NULL REFERENCES scheme_reports(id),
+      requirement TEXT NOT NULL,
+      extracted_rule TEXT NOT NULL DEFAULT '',
+      user_evidence TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'UNKNOWN',
+      missing_evidence TEXT NOT NULL DEFAULT '',
+      explanation TEXT NOT NULL DEFAULT ''
+    );
+
+    CREATE TABLE IF NOT EXISTS scheme_documents (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      report_id TEXT NOT NULL REFERENCES scheme_reports(id),
+      document_name TEXT NOT NULL,
+      why_required TEXT NOT NULL DEFAULT '',
+      issuer TEXT NOT NULL DEFAULT '',
+      acceptable_evidence TEXT NOT NULL DEFAULT '',
+      validity_recency TEXT NOT NULL DEFAULT '',
+      state TEXT NOT NULL DEFAULT 'unknown',
+      source TEXT NOT NULL DEFAULT ''
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_sr_session ON scheme_reports(session_id);
+    CREATE INDEX IF NOT EXISTS idx_sr_owner ON scheme_reports(owner_id);
+    CREATE INDEX IF NOT EXISTS idx_er_report ON eligibility_requirements(report_id);
+    CREATE INDEX IF NOT EXISTS idx_sd_report ON scheme_documents(report_id);
+  `);
   // Verification-engine tables (additive).
   db.exec(`
     CREATE TABLE IF NOT EXISTS verification_sources (

@@ -8,6 +8,7 @@ import { migrate } from "../db/migrations";
 import type { NormalizedDocument } from "../documents/normalized";
 import type { Claim, Entity, Evidence } from "./schemas";
 import type { AnalysisQuestion, Contradiction, DeepReport, TimelineEvent } from "./deep-schemas";
+import type { Requirement, SchemeDocument, SchemeExtraction } from "./scheme-schemas";
 
 export interface FoundationBundle {
   documentId: string;
@@ -22,6 +23,15 @@ export interface DeepBundle {
   timelineEvents: number;
   contradictions: number;
   findings: number;
+}
+
+export interface SchemeBundle {
+  schemeName: string | null;
+  requirements: number;
+  satisfied: number;
+  unknown: number;
+  unsatisfied: number;
+  missingDocuments: number;
 }
 
 export class AnalysisStore {
@@ -179,6 +189,46 @@ export class AnalysisStore {
       timelineEvents: timeline.length,
       contradictions: contradictions.length,
       findings: report.findings.length,
+    };
+  }
+
+  saveScheme(
+    documentId: string,
+    sessionId: string,
+    ownerId: string,
+    scheme: SchemeExtraction,
+    requirements: Requirement[],
+    documents: SchemeDocument[]
+  ): SchemeBundle {
+    const reportId = newId();
+    this.db
+      .prepare(
+        `INSERT INTO scheme_reports (id, owner_id, document_id, session_id, scheme_name, issuing_authority, objective, deadline, benefit, amount, application_method, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(reportId, ownerId, documentId, sessionId, scheme.schemeName, scheme.issuingAuthority, scheme.objective, scheme.deadline, scheme.benefit, scheme.amount, scheme.applicationMethod, nowIso());
+    const rStmt = this.db.prepare(
+      `INSERT INTO eligibility_requirements (id, owner_id, report_id, requirement, extracted_rule, user_evidence, status, missing_evidence, explanation)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const r of requirements) {
+      rStmt.run(newId(), ownerId, reportId, r.requirement, r.extractedRule, r.userEvidence, r.status, r.missingEvidence, r.explanation);
+    }
+    const dStmt = this.db.prepare(
+      `INSERT INTO scheme_documents (id, owner_id, report_id, document_name, why_required, issuer, acceptable_evidence, validity_recency, state, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const d of documents) {
+      dStmt.run(newId(), ownerId, reportId, d.documentName, d.whyRequired, d.issuer, d.acceptableEvidence, d.validityRecency, d.state, d.source);
+    }
+    const count = (s: string) => requirements.filter((r) => r.status === s).length;
+    return {
+      schemeName: scheme.schemeName,
+      requirements: requirements.length,
+      satisfied: count("SATISFIED"),
+      unknown: count("UNKNOWN") + count("INSUFFICIENT_EVIDENCE"),
+      unsatisfied: count("NOT_SATISFIED"),
+      missingDocuments: documents.filter((d) => d.state === "missing" || d.state === "unknown").length,
     };
   }
 }
