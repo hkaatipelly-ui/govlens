@@ -7,6 +7,9 @@ import { getActionEngine } from "@/lib/actions/ActionEngine";
 import { fillExtractionGaps, ensureExplanation } from "@/lib/extraction/postprocess";
 import { getOrCreateUserId } from "@/lib/auth/identity";
 import { getSourceService } from "@/lib/sources/SourceService";
+import { buildNormalizedDocument } from "@/lib/documents/normalized";
+import { classifyDocument, extractEntities, extractClaims, buildEvidence } from "@/lib/analysis/foundation";
+import { getAnalysisStore } from "@/lib/analysis/store";
 
 /**
  * POST /api/analyze — full AI pipeline with honest server-sent progress:
@@ -132,6 +135,44 @@ export async function POST(req: Request) {
 
         sessions.saveAnalysis(session.id, extraction, extraction.sourceIds, verification, explanation, ownerId);
 
+        // Analysis foundation (deterministic, no extra model calls): normalize →
+        // classify → entities → claims → evidence, persisted owner-scoped.
+        // Additive only — existing pipeline output is unchanged.
+        let foundation: { documentId: string; classification: string; entities: number; claims: number; evidence: number } | null = null;
+        try {
+          const normalized = buildNormalizedDocument({
+            ownerId,
+            sessionId: session.id,
+            sourceType: (fileType as "pdf" | "docx" | "jpeg" | "jpg" | "png" | undefined) ?? "text",
+            fileName: fileName ?? null,
+            language,
+            text: cleaned,
+          });
+          const classification = classifyDocument(normalized);
+          const entities = extractEntities(normalized);
+          const claims = extractClaims(normalized, entities);
+          const evidenceObjs = buildEvidence(
+            normalized,
+            claims,
+            evidence.map((h) => ({
+              documentId: h.documentId,
+              title: h.sourceMetadata.title,
+              state: h.sourceMetadata.state,
+              sourceUrl: h.sourceMetadata.sourceUrl,
+              content: h.content,
+            }))
+          );
+          foundation = getAnalysisStore().saveFoundation(
+            normalized,
+            classification.documentType,
+            entities,
+            claims,
+            evidenceObjs
+          );
+        } catch (e) {
+          console.warn("[GovLens] foundation build failed (non-fatal):", e instanceof Error ? e.message : e);
+        }
+
         const checklist = getActionEngine().buildChecklist(extraction, evidence);
         const sources = await getSourceService().getSources(extraction.sourceIds);
         const grounded = evidence.length > 0;
@@ -146,6 +187,7 @@ export async function POST(req: Request) {
           sessionId: session.id,
           checklist,
           grounded,
+          foundation,
           // legacy aliases
           analysis: {
             documentType: extraction.documentType,

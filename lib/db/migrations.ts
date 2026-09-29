@@ -122,6 +122,78 @@ export function migrate(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_cases_status ON cases(status);
     CREATE INDEX IF NOT EXISTS idx_checklist_case ON checklist_items(case_id);
   `);
+  // Analysis-foundation tables (additive; existing data untouched).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS analysis_documents (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      case_id TEXT,
+      source_type TEXT NOT NULL,
+      file_name TEXT,
+      page_count INTEGER NOT NULL DEFAULT 1,
+      language TEXT NOT NULL DEFAULT 'en',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS document_pages (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      document_id TEXT NOT NULL REFERENCES analysis_documents(id),
+      page_number INTEGER NOT NULL,
+      text TEXT NOT NULL,
+      ocr_status TEXT NOT NULL DEFAULT 'unknown'
+    );
+
+    CREATE TABLE IF NOT EXISTS document_entities (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      document_id TEXT NOT NULL REFERENCES analysis_documents(id),
+      entity_type TEXT NOT NULL,
+      canonical_value TEXT NOT NULL,
+      original_value TEXT NOT NULL,
+      page_number INTEGER NOT NULL,
+      text_span TEXT NOT NULL,
+      confidence REAL NOT NULL DEFAULT 0.5
+    );
+
+    CREATE TABLE IF NOT EXISTS document_claims (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      document_id TEXT NOT NULL REFERENCES analysis_documents(id),
+      claim_text TEXT NOT NULL,
+      source_page INTEGER NOT NULL,
+      source_text TEXT NOT NULL,
+      confidence REAL NOT NULL DEFAULT 0.5,
+      materiality TEXT NOT NULL DEFAULT 'medium',
+      verification_status TEXT NOT NULL DEFAULT 'extracted'
+    );
+
+    CREATE TABLE IF NOT EXISTS document_evidence (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      document_id TEXT NOT NULL REFERENCES analysis_documents(id),
+      source_type TEXT NOT NULL,
+      source_name TEXT NOT NULL,
+      page INTEGER,
+      text TEXT NOT NULL,
+      url TEXT,
+      retrieved_at TEXT NOT NULL,
+      verification_status TEXT NOT NULL DEFAULT 'extracted'
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_adoc_owner ON analysis_documents(owner_id);
+    CREATE INDEX IF NOT EXISTS idx_adoc_session ON analysis_documents(session_id);
+    CREATE INDEX IF NOT EXISTS idx_adoc_case ON analysis_documents(case_id);
+    CREATE INDEX IF NOT EXISTS idx_dpages_doc ON document_pages(document_id);
+    CREATE INDEX IF NOT EXISTS idx_dent_doc ON document_entities(document_id);
+    CREATE INDEX IF NOT EXISTS idx_dent_owner ON document_entities(owner_id);
+    CREATE INDEX IF NOT EXISTS idx_dent_type ON document_entities(entity_type);
+    CREATE INDEX IF NOT EXISTS idx_dclaim_doc ON document_claims(document_id);
+    CREATE INDEX IF NOT EXISTS idx_dclaim_owner ON document_claims(owner_id);
+    CREATE INDEX IF NOT EXISTS idx_dev_doc ON document_evidence(document_id);
+    CREATE INDEX IF NOT EXISTS idx_dev_owner ON document_evidence(owner_id);
+  `);
   // Additive columns for newer features (idempotent).
   for (const ddl of [
     `ALTER TABLE sessions ADD COLUMN verification_json TEXT`,
