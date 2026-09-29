@@ -20,6 +20,15 @@ import {
   buildEligibilityMatrix,
   buildChecklist as buildSchemeChecklist,
 } from "@/lib/analysis/scheme";
+import {
+  isLegalLike,
+  extractLegalHeader,
+  buildPartyGraph,
+  extractProvisions,
+  buildClaimEvidenceMatrix,
+  buildRelationships,
+} from "@/lib/analysis/legal";
+import { getLegalStore } from "@/lib/analysis/legal-store";
 import type { ClaimRoute } from "@/lib/verification/pipeline";
 
 /**
@@ -290,6 +299,54 @@ export async function POST(req: Request) {
           console.warn("[GovLens] scheme analysis failed (non-fatal):", e instanceof Error ? e.message : e);
         }
 
+        // Legal/case intelligence (deterministic, no extra model calls):
+        // activates for legal-like documents only. Additive; non-fatal.
+        let legalAnalysis: {
+          parties: number;
+          provisions: number;
+          relationships: number;
+          matrixEntries: number;
+          bundleId: string | null;
+        } | null = null;
+        try {
+          const normalized = buildNormalizedDocument({
+            ownerId,
+            sessionId: session.id,
+            sourceType: (fileType as "pdf" | "docx" | "jpeg" | "jpg" | "png" | undefined) ?? "text",
+            fileName: fileName ?? null,
+            language,
+            text: cleaned,
+          });
+          const cls = classifyDocument(normalized);
+          if (isLegalLike(cls.documentType, cleaned)) {
+            const header = extractLegalHeader(cleaned);
+            const ents = extractEntities(normalized);
+            const clms = extractClaims(normalized, ents);
+            const parties = buildPartyGraph(normalized.documentId, cleaned, clms);
+            const provisions = extractProvisions(normalized);
+            const relationships = buildRelationships(normalized.documentId, cleaned);
+            const matrix = buildClaimEvidenceMatrix(clms, detectContradictions(normalized, ents, clms));
+            const saved = getLegalStore().saveLegal(
+              normalized.documentId,
+              ownerId,
+              header,
+              parties,
+              provisions,
+              relationships
+            );
+            saved.matrixEntries = matrix.length;
+            const bundleId = getLegalStore().attachToSessionBundle(
+              session.id,
+              normalized.documentId,
+              ownerId,
+              extraction.title ?? extraction.documentType
+            );
+            legalAnalysis = { ...saved, bundleId };
+          }
+        } catch (e) {
+          console.warn("[GovLens] legal analysis failed (non-fatal):", e instanceof Error ? e.message : e);
+        }
+
         const checklist = getActionEngine().buildChecklist(extraction, evidence);
         const sources = await getSourceService().getSources(extraction.sourceIds);
         const grounded = evidence.length > 0;
@@ -308,6 +365,7 @@ export async function POST(req: Request) {
           deepAnalysis,
           verificationRoutes,
           schemeAnalysis,
+          legalAnalysis,
           // legacy aliases
           analysis: {
             documentType: extraction.documentType,

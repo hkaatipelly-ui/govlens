@@ -275,6 +275,68 @@ export function migrate(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_ar_session ON analysis_reports(session_id);
     CREATE INDEX IF NOT EXISTS idx_af_report ON analysis_findings(report_id);
   `);
+  // Legal/case-intelligence tables (additive).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS legal_headers (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      court TEXT, jurisdiction TEXT, case_number TEXT, cnr TEXT,
+      fir_number TEXT, police_station TEXT, filing_number TEXT,
+      case_type TEXT, registration_year TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS parties (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      role TEXT NOT NULL,
+      role_evidence TEXT NOT NULL DEFAULT ''
+    );
+
+    CREATE TABLE IF NOT EXISTS legal_provisions (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      reference TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      page_number INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS doc_relationships (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      from_document_id TEXT NOT NULL,
+      to_reference TEXT NOT NULL,
+      relation TEXT NOT NULL,
+      evidence TEXT NOT NULL DEFAULT ''
+    );
+
+    CREATE TABLE IF NOT EXISTS case_bundles (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS case_bundle_items (
+      bundle_id TEXT NOT NULL REFERENCES case_bundles(id),
+      document_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      PRIMARY KEY (bundle_id, document_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_lh_doc ON legal_headers(document_id);
+    CREATE INDEX IF NOT EXISTS idx_lh_owner ON legal_headers(owner_id);
+    CREATE INDEX IF NOT EXISTS idx_lh_case ON legal_headers(case_number);
+    CREATE INDEX IF NOT EXISTS idx_lh_fir ON legal_headers(fir_number);
+    CREATE INDEX IF NOT EXISTS idx_party_doc ON parties(document_id);
+    CREATE INDEX IF NOT EXISTS idx_party_owner ON parties(owner_id);
+    CREATE INDEX IF NOT EXISTS idx_prov_doc ON legal_provisions(document_id);
+    CREATE INDEX IF NOT EXISTS idx_rel_from ON doc_relationships(from_document_id);
+    CREATE INDEX IF NOT EXISTS idx_bundle_owner ON case_bundles(owner_id);
+  `);
   // Scheme-analysis tables (additive).
   db.exec(`
     CREATE TABLE IF NOT EXISTS scheme_reports (
