@@ -48,6 +48,7 @@ import {
   type Verification,
 } from "../verification/schemas";
 import { deepReportSchema, type DeepReport } from "../analysis/deep-schemas";
+import { chunkDocument, CHUNK_THRESHOLD } from "./chunking";
 import type { KnowledgeHit } from "../knowledge/KnowledgeEngine";
 
 export { AIEngineUnavailableError, AITimeoutError };
@@ -67,12 +68,37 @@ export function ollamaModel(): string {
 }
 
 // Server-side AI request budget. Gemma 3 4B on local Metal runs ~12 t/s, so a
-// full structured extraction can exceed 90s — 180s default, overridable.
+// full structured extraction can exceed 90s — 180s default, overridable via
+// OLLAMA_TIMEOUT_MS. This single constant drives every server-side Ollama
+// call (one AbortController per request); no other timeouts exist in the AI
+// path (the mic auto-stop timer in VoiceInput is unrelated UI logic).
 const OLLAMA_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS ?? 180000);
 
-// Cap on MODEL OUTPUT tokens only (never truncates user document text — the
-// structured schemas below need ~200-300 tokens; 512 leaves safe headroom).
+// Per-stage MODEL OUTPUT token caps (never truncate source text — prompts
+// still carry full context windows; only generation is bounded).
+// Each stage reads OLLAMA_NUM_PREDICT_<STAGE>, falling back to the default.
 const NUM_PREDICT = Number(process.env.OLLAMA_NUM_PREDICT ?? 512);
+
+type StageName =
+  | "CLEANUP" | "VERIFY" | "EXTRACT" | "EXPLAIN"
+  | "ASK" | "TRANSLATE" | "ACTIONPLAN" | "DEEP";
+
+const STAGE_DEFAULTS: Record<StageName, number> = {
+  CLEANUP: 256,
+  VERIFY: 256,
+  EXTRACT: 512,
+  EXPLAIN: 512,
+  ASK: 512,
+  TRANSLATE: 512,
+  ACTIONPLAN: 256,
+  DEEP: 1024,
+};
+
+export function stageBudget(stage: StageName): number {
+  const override = Number(process.env[`OLLAMA_NUM_PREDICT_${stage}`]);
+  if (Number.isFinite(override) && override > 0) return override;
+  return STAGE_DEFAULTS[stage];
+}
 
 const GROUND_RULES = `You are GovLens, an AI assistant for Indian government documents. You are NOT a government authority and must NOT claim to be one. You do NOT authenticate physical documents.
 STRICT RULES:
@@ -350,7 +376,7 @@ export class OllamaGemmaEngine implements AIEngine {
         const res = ocrCleanupSchema.safeParse(parsed);
         return res.success ? res.data : null;
       },
-      {},
+      { numPredict: stageBudget("CLEANUP") },
       "GovLens/cleanup"
     );
     if (out) return out;
@@ -374,7 +400,7 @@ export class OllamaGemmaEngine implements AIEngine {
         const res = verificationSchema.safeParse(parsed);
         return res.success ? res.data : null;
       },
-      hasImage ? { images: [stripDataUrl(input.imageDataUrl!)] } : {},
+      { ...(hasImage ? { images: [stripDataUrl(input.imageDataUrl!)] } : {}), numPredict: stageBudget("VERIFY") },
       "GovLens/verify"
     );
     if (out) {
@@ -386,9 +412,15 @@ export class OllamaGemmaEngine implements AIEngine {
   }
 
   async extractDocumentFields(input: ExtractInput): Promise<DocumentExtraction> {
+    // Large documents: extract per chunk (provenance preserved), then merge
+    // deterministically — never one giant prompt, never truncated source text.
+    if (input.text.length > CHUNK_THRESHOLD) {
+      return this.extractChunked(input);
+    }
     const prompt = buildAnalysisPrompt(input.text, input.evidence);
     const out = await validatedCall(GROUND_RULES, prompt, validateExtractionJson, {
       format: EXTRACTION_JSON_SCHEMA,
+      numPredict: stageBudget("EXTRACT"),
     }, "GovLens/extract");
     if (out) {
       return {
@@ -402,6 +434,51 @@ export class OllamaGemmaEngine implements AIEngine {
     return fallback;
   }
 
+  /** Chunked extraction: per-chunk structured calls + deterministic merge. */
+  private async extractChunked(input: ExtractInput): Promise<DocumentExtraction> {
+    const chunks = chunkDocument(input.text);
+    const parts: DocumentExtraction[] = [];
+    for (const chunk of chunks) {
+      const prompt =
+        `This is chunk ${chunk.index + 1}/${chunks.length} (pages ${chunk.pageStart}–${chunk.pageEnd}) of a larger document. ` +
+        buildAnalysisPrompt(chunk.text, input.evidence);
+      const out = await validatedCall(GROUND_RULES, prompt, validateExtractionJson, {
+        format: EXTRACTION_JSON_SCHEMA,
+        numPredict: stageBudget("EXTRACT"),
+      }, "GovLens/extract-chunk");
+      if (out) parts.push(out);
+    }
+    if (!parts.length) {
+      const fallback = unverifiedExtractionFallback(input.language);
+      fallback.sourceIds = input.evidence.map((h) => h.documentId);
+      return fallback;
+    }
+    const union = (lists: string[][]): string[] => [...new Set(lists.flat())].slice(0, 20);
+    const longest = (vals: (string | undefined)[]): string =>
+      vals.filter((v): v is string => !!v).sort((a, b) => b.length - a.length)[0] ?? "";
+    const first = (vals: (string | null | undefined)[]): string | null =>
+      vals.find((v): v is string => !!v) ?? null;
+    const votes = parts.map((p) => p.documentType);
+    const documentType = [...new Set(votes)].sort(
+      (a, b) => votes.filter((v) => v === b).length - votes.filter((v) => v === a).length
+    )[0];
+    return {
+      documentType,
+      title: first(parts.map((p) => p.title)),
+      organization: first(parts.map((p) => p.organization)),
+      summary: longest(parts.map((p) => p.summary)).slice(0, 2000),
+      summaryTelugu: longest(parts.map((p) => p.summaryTelugu)) || undefined,
+      deadline: first(parts.map((p) => p.deadline)),
+      amount: first(parts.map((p) => p.amount)),
+      referenceNumber: first(parts.map((p) => p.referenceNumber)),
+      requiredDocuments: union(parts.map((p) => p.requiredDocuments)),
+      requiredActions: union(parts.map((p) => p.requiredActions)),
+      warningSignals: union(parts.map((p) => p.warningSignals)),
+      language: input.language,
+      sourceIds: input.evidence.map((h) => h.documentId),
+    };
+  }
+
   async explainDocument(input: ExplainInput): Promise<Explanation> {
     const out = await validatedCall(
       GROUND_RULES,
@@ -412,7 +489,7 @@ export class OllamaGemmaEngine implements AIEngine {
         const res = explanationSchema.safeParse(parsed);
         return res.success ? res.data : null;
       },
-      { format: EXPLANATION_JSON_SCHEMA },
+      { format: EXPLANATION_JSON_SCHEMA, numPredict: stageBudget("EXPLAIN") },
       "GovLens/explain"
     );
     if (out) return { ...out, sourceIds: input.evidence.map((h) => h.documentId) };
@@ -455,13 +532,14 @@ export class OllamaGemmaEngine implements AIEngine {
       input.extractionSummary,
       input.history
     );
-    const raw = await chatOllama(GROUND_RULES, prompt);
+    const raw = await chatOllama(GROUND_RULES, prompt, { numPredict: stageBudget("ASK") });
     let parsed = safeJsonParse<{ answer?: unknown; verified?: unknown }>(raw);
     if (!parsed || typeof parsed.answer !== "string") {
       console.warn("[GovLens/ask] model JSON invalid; retrying once.");
       const retry = await chatOllama(
         GROUND_RULES,
-        prompt + "\n\nYour previous reply was not valid JSON. Reply with ONLY the JSON object."
+        prompt + "\n\nYour previous reply was not valid JSON. Reply with ONLY the JSON object.",
+        { numPredict: stageBudget("ASK") }
       );
       parsed = safeJsonParse<{ answer?: unknown; verified?: unknown }>(retry);
     }
@@ -478,7 +556,8 @@ export class OllamaGemmaEngine implements AIEngine {
     const target = input.targetLanguage === "te" ? "Telugu" : "English";
     const raw = await chatOllama(
       `You are a precise translator for Indian government documents. Translate into ${target}, preserving ALL dates, amounts, reference numbers, scheme names and document numbers EXACTLY as written — never paraphrase or convert them. Respond with ONLY JSON: {"translatedText": string}. No extra text.`,
-      `Translate the following into ${target}:\n\n${input.text.slice(0, 6000)}`
+      `Translate the following into ${target}:\n\n${input.text.slice(0, 6000)}`,
+      { numPredict: stageBudget("TRANSLATE") }
     );
     const parsed = safeJsonParse<{ translatedText?: unknown }>(raw);
     if (parsed && typeof parsed.translatedText === "string" && parsed.translatedText.trim()) {
@@ -497,7 +576,7 @@ export class OllamaGemmaEngine implements AIEngine {
         const res = actionPlanSchema.safeParse(parsed);
         return res.success ? res.data : null;
       },
-      {},
+      { numPredict: stageBudget("ACTIONPLAN") },
       "GovLens/actionplan"
     );
     if (out) return { ...out, sourceIds: input.evidence.map((h) => h.documentId) };
@@ -520,7 +599,7 @@ export class OllamaGemmaEngine implements AIEngine {
         const res = deepReportSchema.safeParse(parsed);
         return res.success ? res.data : null;
       },
-      { numPredict: Number(process.env.OLLAMA_NUM_PREDICT_DEEP ?? 1024) },
+      { numPredict: stageBudget("DEEP") },
       "GovLens/deep"
     );
     if (out) return out;

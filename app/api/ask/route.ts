@@ -5,6 +5,7 @@ import { getKnowledgeEngine } from "@/lib/knowledge/LocalKnowledgeEngine";
 import { getAIEngine, AIEngineUnavailableError } from "@/lib/ai/OllamaGemmaEngine";
 import { getSourceService } from "@/lib/sources/SourceService";
 import { getOrCreateUserId } from "@/lib/auth/identity";
+import { getDatabase } from "@/lib/db/database";
 
 /**
  * POST /api/ask — ONE grounded Q&A model call, scoped to a session.
@@ -44,6 +45,41 @@ export async function POST(req: Request) {
       lang = session.language as typeof lang;
       extractionSummary = session.extraction?.summary;
       history = sessions.history(sessionId, ownerId).map((m) => ({ role: m.role, content: m.content }));
+      // Cached stage reuse: prefer stored claims over resending the full
+      // document. Relevant claims are selected by keyword overlap below.
+      try {
+        const db = getDatabase();
+        const docRow = db
+          .prepare(`SELECT id FROM analysis_documents WHERE session_id = ? AND owner_id = ?`)
+          .get(sessionId, ownerId) as { id: string } | undefined;
+        if (docRow) {
+          const rows = db
+            .prepare(`SELECT claim_text AS t FROM document_claims WHERE document_id = ? AND owner_id = ? LIMIT 100`)
+            .all(docRow.id, ownerId) as Array<{ t: string }>;
+          const qTokens = new Set(question.toLowerCase().split(/[^a-z]+/).filter((t) => t.length > 3));
+          const scored = rows
+            .map((r) => ({
+              text: String(r.t),
+              overlap: String(r.t).toLowerCase().split(/[^a-z]+/).filter((t) => qTokens.has(t)).length,
+            }))
+            .sort((a, b) => b.overlap - a.overlap);
+          const relevant = scored.filter((s) => s.overlap > 0).slice(0, 6);
+          if (relevant.length > 0) {
+            extractionSummary = [
+              extractionSummary ?? "",
+              "RELEVANT CACHED CLAIMS:",
+              ...relevant.map((r) => `- ${r.text.slice(0, 300)}`),
+            ]
+              .filter(Boolean)
+              .join("\n")
+              .slice(0, 2500);
+            // Claims carry the substance; keep only a short doc excerpt.
+            docText = docText.slice(0, 1200);
+          }
+        }
+      } catch {
+        /* cache is best-effort; full-document path below still works */
+      }
     }
     if (!docText.trim()) {
       return NextResponse.json(
