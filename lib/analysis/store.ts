@@ -231,6 +231,36 @@ export class AnalysisStore {
       missingDocuments: documents.filter((d) => d.state === "missing" || d.state === "unknown").length,
     };
   }
+
+  /** Owner-scoped full bundle read for report assembly. Returns null when not owned. */
+  readBundle(documentId: string, ownerId: string): Record<string, unknown[]> | null {
+    const doc = this.db
+      .prepare(`SELECT * FROM analysis_documents WHERE id = ? AND owner_id = ?`)
+      .get(documentId, ownerId) as Record<string, unknown> | undefined;
+    if (!doc) return null;
+    const q = (sql: string, ...params: unknown[]): Record<string, unknown>[] =>
+      this.db.prepare(sql).all(...params) as Record<string, unknown>[];
+    return {
+      document: [doc],
+      entities: q(`SELECT * FROM document_entities WHERE document_id = ? AND owner_id = ?`, documentId, ownerId),
+      claims: q(`SELECT * FROM document_claims WHERE document_id = ? AND owner_id = ?`, documentId, ownerId),
+      evidence: q(`SELECT * FROM document_evidence WHERE document_id = ? AND owner_id = ?`, documentId, ownerId),
+      questions: q(`SELECT * FROM analysis_questions WHERE document_id = ? AND owner_id = ?`, documentId, ownerId),
+      answers: q(`SELECT * FROM analysis_answers WHERE document_id = ? AND owner_id = ?`, documentId, ownerId),
+      timeline: q(`SELECT * FROM timelines WHERE document_id = ? AND owner_id = ?`, documentId, ownerId),
+      contradictions: q(`SELECT * FROM contradictions WHERE document_id = ? AND owner_id = ?`, documentId, ownerId),
+      verification: q(`SELECT * FROM verification_results WHERE document_id = ? AND owner_id = ?`, documentId, ownerId),
+      schemeReports: q(
+        `SELECT sr.*, (SELECT json_group_array(json_object('requirement', requirement, 'status', status, 'explanation', explanation)) FROM eligibility_requirements WHERE report_id = sr.id AND owner_id = ?) AS reqs,
+                (SELECT json_group_array(json_object('documentName', document_name, 'state', state, 'whyRequired', why_required)) FROM scheme_documents WHERE report_id = sr.id AND owner_id = ?) AS docs
+         FROM scheme_reports sr WHERE document_id = ? AND owner_id = ?`, ownerId, ownerId, documentId, ownerId
+      ),
+      legalHeaders: q(`SELECT * FROM legal_headers WHERE document_id = ? AND owner_id = ?`, documentId, ownerId),
+      parties: q(`SELECT * FROM parties WHERE document_id = ? AND owner_id = ?`, documentId, ownerId),
+      provisions: q(`SELECT * FROM legal_provisions WHERE document_id = ? AND owner_id = ?`, documentId, ownerId),
+      deepReports: q(`SELECT * FROM analysis_reports WHERE document_id = ? AND owner_id = ?`, documentId, ownerId),
+    };
+  }
 }
 
 let singleton: AnalysisStore | null = null;
