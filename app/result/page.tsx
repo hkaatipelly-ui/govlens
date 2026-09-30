@@ -193,6 +193,11 @@ export default function ResultPage() {
               </dl>
             </div>
             <StatusBadge status={session?.grounded ? "verified" : "unverified"} label={session?.grounded ? "✓ Grounded" : "⚠ Unverified"} />
+            {session?.classification && session.classification !== "unknown" && (
+              <span className="gov-badge bg-gov-lightBlue text-gov-navy">
+                {session.classification.replace(/_/g, " ")}
+              </span>
+            )}
           </div>
         </div>
 
@@ -207,6 +212,25 @@ export default function ResultPage() {
         {/* Document check — AI-assisted verification (never authentication) */}
         {session?.verification && (
           <DocumentCheck verification={session.verification} />
+        )}
+
+        {/* Key entities — important facts with page provenance */}
+        {session && session.entityDetails.length > 0 && (
+          <section aria-labelledby="entities" className="gov-card p-4">
+            <h2 id="entities" className="gov-section-title !text-base">🔑 Key Facts</h2>
+            <div className="mt-3 overflow-x-auto">
+              <table className="gov-table">
+                <tbody>
+                  {session.entityDetails.slice(0, 8).map((e, i) => (
+                    <tr key={i}>
+                      <th scope="row" className="!w-40">{e.type.replace(/_/g, " ").toLowerCase()}</th>
+                      <td className="font-semibold">{e.value} <span className="text-xs font-normal text-gov-muted">(p. {e.page})</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
         )}
 
         {/* Important information */}
@@ -353,6 +377,109 @@ export default function ResultPage() {
           ) : null}
         </section>
 
+        {/* Deeper analysis — answers, timeline, contradictions (only when present) */}
+        {session?.deepDetails && (session.deepDetails.findings.length > 0 || session.deepDetails.timeline.length > 0 || session.deepDetails.contradictions.length > 0 || session.deepDetails.answers.length > 0) && (
+          <section aria-labelledby="deep" className="gov-card p-4">
+            <h2 id="deep" className="gov-section-title !text-base">🔬 Deeper Analysis</h2>
+            {session.deepDetails.answers.length > 0 && (
+              <div className="mt-3 space-y-2">
+                {session.deepDetails.answers.slice(0, 6).map((a, i) => (
+                  <details key={i} className="rounded-gov border border-gov-border bg-gov-offWhite p-3">
+                    <summary className="cursor-pointer text-sm font-bold text-gov-navy">{a.question}</summary>
+                    <p className="mt-1 text-sm">{a.answer}</p>
+                  </details>
+                ))}
+              </div>
+            )}
+            {session.deepDetails.timeline.length > 0 && (
+              <div className="mt-3">
+                <h3 className="text-sm font-extrabold text-gov-navy">📅 Timeline</h3>
+                <ul className="mt-1 space-y-1">
+                  {session.deepDetails.timeline.slice(0, 8).map((t, i) => (
+                    <li key={i} className="text-sm"><strong>{t.date}</strong> — {t.event}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {session.deepDetails.contradictions.length > 0 && (
+              <div className="mt-3 rounded-gov border border-gov-saffron bg-amber-50 p-3">
+                <h3 className="text-sm font-extrabold text-amber-900">⚠ Points to verify</h3>
+                {session.deepDetails.contradictions.slice(0, 4).map((c, i) => (
+                  <p key={i} className="mt-1 text-sm text-amber-900">• {c.explanation}</p>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Scheme eligibility — only for scheme documents */}
+        {session?.schemeDetails && (
+          <section aria-labelledby="scheme" className="gov-card p-4">
+            <h2 id="scheme" className="gov-section-title !text-base">
+              🌾 Scheme Eligibility{session.schemeDetails.schemeName ? ` — ${session.schemeDetails.schemeName}` : ""}
+            </h2>
+            <p className="mt-1 text-xs text-gov-muted">Based on the available evidence — not a final government determination.</p>
+            <div className="mt-3 overflow-x-auto">
+              <table className="gov-table">
+                <tbody>
+                  {session.schemeDetails.requirements.slice(0, 10).map((r, i) => (
+                    <tr key={i}>
+                      <th scope="row" className="!w-40">{r.requirement}</th>
+                      <td>
+                        <span className={`gov-badge ${r.status === "SATISFIED" ? "bg-gov-lightGreen text-gov-greenDark" : r.status === "NOT_SATISFIED" ? "bg-red-100 text-gov-red" : "bg-amber-100 text-amber-900"}`}>
+                          {r.status.replace(/_/g, " ")}
+                        </span>
+                        <span className="ml-2 text-sm">{r.explanation}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {session.schemeDetails.documents.length > 0 && (
+              <div className="mt-3">
+                <h3 className="text-sm font-extrabold text-gov-navy">🧾 Scheme documents</h3>
+                <ul className="mt-1 space-y-1">
+                  {session.schemeDetails.documents.slice(0, 8).map((d, i) => (
+                    <li key={i} className="text-sm">
+                      {d.state === "provided" ? "☑" : d.state === "incomplete" ? "⚠" : d.state === "missing" ? "☐" : "?"} {d.documentName}
+                      <span className="text-xs text-gov-muted"> — {d.whyRequired}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Parties & provisions — only for legal documents */}
+        {session?.legalDetails && (session.legalDetails.parties.length > 0 || session.legalDetails.provisions.length > 0) && (
+          <section aria-labelledby="legal" className="gov-card p-4">
+            <h2 id="legal" className="gov-section-title !text-base">⚖ Parties & References</h2>
+            {session.legalDetails.parties.length > 0 && (
+              <div className="mt-3 overflow-x-auto">
+                <table className="gov-table">
+                  <tbody>
+                    {session.legalDetails.parties.slice(0, 8).map((p, i) => (
+                      <tr key={i}>
+                        <th scope="row" className="!w-40">{p.role}</th>
+                        <td className="font-semibold">{p.name}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {session.legalDetails.provisions.length > 0 && (
+              <ul className="mt-2 list-disc space-y-0.5 pl-5 text-sm">
+                {session.legalDetails.provisions.slice(0, 6).map((p, i) => (
+                  <li key={i}>{p}</li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
+
         {/* Voice Q&A */}
         <section aria-labelledby="ask" className="gov-card border-t-4 border-t-gov-green p-4">
           <h2 id="ask" className="gov-section-title !text-base">🎙 Ask About This Document</h2>
@@ -454,6 +581,29 @@ export default function ResultPage() {
               </div>
             )}
           </div>
+        </section>
+
+        {/* Official record verification — adapter routes or honest unavailability */}
+        <section aria-labelledby="record-verify" className="gov-card p-4">
+          <h2 id="record-verify" className="gov-section-title !text-base">🏛 Official Record Verification</h2>
+          {session && session.verificationRoutes.length > 0 ? (
+            <div className="mt-3 space-y-2">
+              {session.verificationRoutes.slice(0, 4).map((r, i) => (
+                <div key={i} className="rounded-gov border border-gov-border bg-gov-offWhite p-3">
+                  {r.lookups.slice(0, 2).map((l, j) => (
+                    <div key={j} className="text-sm">
+                      <p className="font-bold text-gov-navy">{l.authority}</p>
+                      <p className="mt-0.5">{l.instructions}</p>
+                      <p className="mt-0.5 truncate text-xs text-gov-muted">{l.sourceUrl}</p>
+                    </div>
+                  ))}
+                </div>
+              ))}
+              <p className="text-xs text-gov-muted">Automated online lookup is not available — verify on the official portal and compare values before acting.</p>
+            </div>
+          ) : (
+            <p className="mt-2 text-sm">Official online verification is not available for this record. Please use the official portal to verify the extracted details.</p>
+          )}
         </section>
 
         {/* Create case */}

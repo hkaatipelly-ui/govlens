@@ -21,6 +21,33 @@ async function json<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export interface EntityDetail { type: string; value: string; page: number }
+
+export interface DeepDetails {
+  answers: Array<{ question: string; answer: string }>;
+  findings: Array<{ title: string; detail: string; materiality: string }>;
+  timeline: Array<{ date: string; event: string }>;
+  contradictions: Array<{ category: string; explanation: string }>;
+}
+
+export interface SchemeDetails {
+  schemeName: string | null;
+  requirements: Array<{ requirement: string; status: string; explanation: string }>;
+  documents: Array<{ documentName: string; state: string; whyRequired: string }>;
+}
+
+export interface LegalDetails {
+  parties: Array<{ name: string; role: string }>;
+  provisions: string[];
+  header: { court: string | null; caseNumber: string | null; firNumber: string | null };
+}
+
+export interface VerificationRoute {
+  claimId: string;
+  adapterIds: string[];
+  lookups: Array<{ adapterId: string; authority: string; sourceUrl: string; fields: Record<string, string>; instructions: string; automated: boolean }>;
+}
+
 export interface AnalyzeResponse {
   extraction: DocumentExtraction;
   explanation: Explanation;
@@ -30,6 +57,12 @@ export interface AnalyzeResponse {
   sessionId: string;
   checklist: ChecklistItem[];
   grounded: boolean;
+  foundation?: { documentId: string; classification: string; entities: number; claims: number; evidence: number } | null;
+  verificationRoutes?: VerificationRoute[];
+  entityDetails?: EntityDetail[];
+  deepDetails?: DeepDetails | null;
+  schemeDetails?: SchemeDetails | null;
+  legalDetails?: LegalDetails | null;
 }
 
 export async function apiHealth(): Promise<{

@@ -30,10 +30,10 @@ const STAGE_ORDER: AnalyzeStage[] = [
 
 const STAGE_LABELS: Record<AnalyzeStage, string> = {
   reading: "Reading document",
-  "checking-type": "Checking document type",
-  "finding-info": "Finding official information",
-  understanding: "Understanding document",
-  explaining: "Preparing explanation",
+  "checking-type": "Classifying document",
+  "finding-info": "Extracting facts · checking evidence",
+  understanding: "Generating questions · running verification",
+  explaining: "Building final analysis",
 };
 
 function ScanForm() {
@@ -161,6 +161,12 @@ function ScanForm() {
         evidence: [],
         sources: result.sources,
         checklist: result.checklist,
+        classification: result.foundation?.classification ?? null,
+        entityDetails: result.entityDetails ?? [],
+        deepDetails: result.deepDetails ?? null,
+        schemeDetails: result.schemeDetails ?? null,
+        legalDetails: result.legalDetails ?? null,
+        verificationRoutes: result.verificationRoutes ?? [],
         qa: [],
         caseId: null,
       });

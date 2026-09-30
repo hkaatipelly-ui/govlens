@@ -14,6 +14,14 @@ export interface QA {
   sources: GovernmentSource[];
 }
 
+import type {
+  DeepDetails,
+  EntityDetail,
+  LegalDetails,
+  SchemeDetails,
+  VerificationRoute,
+} from "../services/api";
+
 export interface DocSession {
   sessionId: string | null;
   imageUrl: string | null;
@@ -30,6 +38,12 @@ export interface DocSession {
   evidence: KnowledgeHit[];
   sources: GovernmentSource[];
   checklist: ChecklistItem[];
+  classification: string | null;
+  entityDetails: EntityDetail[];
+  deepDetails: DeepDetails | null;
+  schemeDetails: SchemeDetails | null;
+  legalDetails: LegalDetails | null;
+  verificationRoutes: VerificationRoute[];
   qa: QA[];
   caseId: string | null;
 }
@@ -50,6 +64,12 @@ const EMPTY: DocSession = {
   evidence: [],
   sources: [],
   checklist: [],
+  classification: null,
+  entityDetails: [],
+  deepDetails: null,
+  schemeDetails: null,
+  legalDetails: null,
+  verificationRoutes: [],
   qa: [],
   caseId: null,
 };

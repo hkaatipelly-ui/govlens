@@ -160,6 +160,7 @@ export async function POST(req: Request) {
         // Additive only — existing pipeline output is unchanged.
         let foundation: { documentId: string; classification: string; entities: number; claims: number; evidence: number } | null = null;
         let verificationRoutes: ClaimRoute[] = [];
+        let entityDetails: Array<{ type: string; value: string; page: number }> = [];
         try {
           const normalized = buildNormalizedDocument({
             ownerId,
@@ -190,6 +191,11 @@ export async function POST(req: Request) {
             claims,
             evidenceObjs
           );
+          entityDetails = entities.slice(0, 12).map((e) => ({
+            type: e.entityType,
+            value: e.canonicalValue,
+            page: e.pageNumber,
+          }));
           // Verification routing (no external calls): verifiable claims →
           // adapters → user-assisted lookup requests, sources registered.
           try {
@@ -211,6 +217,12 @@ export async function POST(req: Request) {
         // structured Gemma pass for material answers). Additive; failures degrade
         // to empty deep payload without breaking the existing result.
         let deepAnalysis: { questions: number; timelineEvents: number; contradictions: number; findings: number } | null = null;
+        let deepDetails: {
+          answers: Array<{ question: string; answer: string }>;
+          findings: Array<{ title: string; detail: string; materiality: string }>;
+          timeline: Array<{ date: string; event: string }>;
+          contradictions: Array<{ category: string; explanation: string }>;
+        } | null = null;
         try {
           const normalized = buildNormalizedDocument({
             ownerId,
@@ -258,6 +270,22 @@ export async function POST(req: Request) {
             contradictions,
             report
           );
+          deepDetails = {
+            answers: report.answers.slice(0, 12).map((a) => {
+              const q = [...roots, ...subquestions].find((x) => x.questionId === a.questionId);
+              return { question: q?.question ?? a.questionId, answer: a.answer };
+            }),
+            findings: report.findings.slice(0, 8).map((f) => ({
+              title: f.title,
+              detail: f.detail,
+              materiality: f.materiality,
+            })),
+            timeline: timeline.slice(0, 12).map((t) => ({ date: t.date, event: t.event })),
+            contradictions: contradictions.slice(0, 6).map((c) => ({
+              category: c.category,
+              explanation: c.explanation,
+            })),
+          };
         } catch (e) {
           console.warn("[GovLens] deep analysis failed (non-fatal):", e instanceof Error ? e.message : e);
         }
@@ -271,6 +299,11 @@ export async function POST(req: Request) {
           unknown: number;
           unsatisfied: number;
           missingDocuments: number;
+        } | null = null;
+        let schemeDetails: {
+          schemeName: string | null;
+          requirements: Array<{ requirement: string; status: string; explanation: string }>;
+          documents: Array<{ documentName: string; state: string; whyRequired: string }>;
         } | null = null;
         try {
           const normalized = buildNormalizedDocument({
@@ -294,6 +327,19 @@ export async function POST(req: Request) {
               requirements,
               docs
             );
+            schemeDetails = {
+              schemeName: scheme.schemeName,
+              requirements: requirements.map((r) => ({
+                requirement: r.requirement,
+                status: r.status,
+                explanation: r.explanation,
+              })),
+              documents: docs.map((d) => ({
+                documentName: d.documentName,
+                state: d.state,
+                whyRequired: d.whyRequired,
+              })),
+            };
           }
         } catch (e) {
           console.warn("[GovLens] scheme analysis failed (non-fatal):", e instanceof Error ? e.message : e);
@@ -307,6 +353,11 @@ export async function POST(req: Request) {
           relationships: number;
           matrixEntries: number;
           bundleId: string | null;
+        } | null = null;
+        let legalDetails: {
+          parties: Array<{ name: string; role: string }>;
+          provisions: string[];
+          header: { court: string | null; caseNumber: string | null; firNumber: string | null };
         } | null = null;
         try {
           const normalized = buildNormalizedDocument({
@@ -342,6 +393,15 @@ export async function POST(req: Request) {
               extraction.title ?? extraction.documentType
             );
             legalAnalysis = { ...saved, bundleId };
+            legalDetails = {
+              parties: parties.slice(0, 10).map((p) => ({ name: p.name, role: p.role })),
+              provisions: provisions.slice(0, 10).map((p) => p.reference),
+              header: {
+                court: header.court,
+                caseNumber: header.caseNumber,
+                firNumber: header.firNumber,
+              },
+            };
           }
         } catch (e) {
           console.warn("[GovLens] legal analysis failed (non-fatal):", e instanceof Error ? e.message : e);
@@ -364,6 +424,10 @@ export async function POST(req: Request) {
           foundation,
           deepAnalysis,
           verificationRoutes,
+          entityDetails,
+          deepDetails,
+          schemeDetails,
+          legalDetails,
           schemeAnalysis,
           legalAnalysis,
           // legacy aliases
