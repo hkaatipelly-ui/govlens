@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getOrCreateUserId } from "@/lib/auth/identity";
+import { getOrCreateUserId, scopedAuthUserId } from "@/lib/auth/identity";
 import { getSessionService } from "@/lib/sessions/SessionService";
 import { getAnalysisStore } from "@/lib/analysis/store";
 import { getSourceService } from "@/lib/sources/SourceService";
@@ -18,7 +18,7 @@ export async function GET(req: Request) {
     if (!sessionId) {
       return NextResponse.json({ error: "sessionId is required." }, { status: 400 });
     }
-    const ownerId = getOrCreateUserId();
+    const ownerId = await scopedAuthUserId();
     const session = getSessionService().get(sessionId, ownerId);
     if (!session || !session.extraction) {
       return NextResponse.json({ error: "Report not found." }, { status: 404 });

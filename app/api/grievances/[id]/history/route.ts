@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getGrievanceService } from "@/lib/grievances/GrievanceService";
-import { getOrCreateUserId } from "@/lib/auth/identity";
+import { getOrCreateUserId, scopedAuthUserId } from "@/lib/auth/identity";
 
 export async function GET(
   _req: Request,
@@ -8,7 +8,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const ownerId = getOrCreateUserId();
+    const ownerId = await scopedAuthUserId();
     const result = getGrievanceService().history(id, ownerId, false);
     if (!result) {
       return NextResponse.json(

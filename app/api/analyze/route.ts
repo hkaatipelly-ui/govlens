@@ -11,7 +11,7 @@ import { getGeminiEngine, geminiConfigurationIssue, geminiEnabled, sensitiveDocu
 import { isSensitiveDocument } from "@/lib/ai/geminiPrivacy";
 import type { AIEngine } from "@/lib/ai/AIEngine";
 import { requireOwnerLocalAI, toAiErrorResponse, AIPolicyError } from "@/lib/ai/providerPolicy";
-import { isOwner } from "@/lib/auth/owner";
+import { requireAuthenticatedUser } from "@/lib/auth/googleAuth";
 import { GovernmentDocumentVerificationService } from "@/lib/verification/GovernmentDocumentVerificationService";
 import { getActionEngine } from "@/lib/actions/ActionEngine";
 import { fillExtractionGaps, ensureExplanation } from "@/lib/extraction/postprocess";
@@ -64,14 +64,14 @@ export async function POST(req: Request) {
       ? crypto.randomUUID()
       : `analyze-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-  // Document analysis is now Google Gemini only. Owner-only access is preserved.
+  // Any authenticated Google user may analyze their own permitted documents.
   const cloudConsented = cloudConsent === true;
   let engine: AIEngine;
   let engineProvider: "gemini" = "gemini";
+  let googleOwnerId = "";
   try {
-    if (!isOwner()) {
-      throw new AIPolicyError(403, "OWNER_REQUIRED", "Document analysis is reserved for the authenticated project owner. Sign in at /owner to continue.");
-    }
+    const googleIdentity = await requireAuthenticatedUser();
+    googleOwnerId = googleIdentity.userId;
     const sensitive = isSensitiveDocument(text);
     if (sensitive && !sensitiveDocumentProcessingEnabled()) {
       throw new AIPolicyError(403, "SENSITIVE_DOCUMENT_BLOCKED", sensitiveDocumentBlockMessage());
@@ -114,7 +114,7 @@ export async function POST(req: Request) {
       };
       try {
         const sessions = getSessionService();
-        const ownerId = getOrCreateUserId();
+        const ownerId = googleOwnerId || getOrCreateUserId();
         const session = sessions.create({
           documentText: text,
           language,

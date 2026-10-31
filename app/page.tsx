@@ -153,6 +153,9 @@ export default function HomePage() {
               <Link href="/about" className="gov-btn-outline !min-h-[44px] !text-sm">
                 How verification works
               </Link>
+              <Link href="/privacy" className="gov-btn-outline !min-h-[44px] !text-sm">
+                Privacy &amp; cloud processing
+              </Link>
             </div>
           </div>
         </div>

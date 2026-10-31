@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getGrievanceService } from "@/lib/grievances/GrievanceService";
-import { isCaseworker, getOrCreateUserId } from "@/lib/auth/identity";
+import { isCaseworker, scopedAuthUserId } from "@/lib/auth/identity";
 
 function deny() {
   return NextResponse.json({ error: "Caseworker access required." }, { status: 403 });
@@ -46,7 +46,7 @@ export async function PATCH(
   if (!parsed.success) return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   try {
     const s = getGrievanceService();
-    const ownerId = getOrCreateUserId();
+    const ownerId = await scopedAuthUserId();
     const updated = s.updateStatus(
       id,
       // for staff action owner is the grievance owner lookup; updateStatus takes ownerId only for get (ownership).

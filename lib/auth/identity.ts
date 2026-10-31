@@ -3,9 +3,17 @@ import { cookies } from "next/headers";
 import { randomUUID, createHash, timingSafeEqual } from "node:crypto";
 
 export const USER_COOKIE = "govlens_user_id";
+export const GOOGLE_SESSION_COOKIE = "__session";
 const CW_COOKIE = "govlens_caseworker";
 
 export const PROTOTYPE_OWNER = "prototype-admin";
+
+/** Stable internal user id derived server-side from a verified Google email. */
+export function googleUserId(verifiedEmail: string): string {
+  const secret = process.env.AUTH_SECRET ?? "";
+  const normalized = verifiedEmail.trim().toLowerCase();
+  return createHash("sha256").update(`govlens-google-user:${secret}:${normalized}`).digest("hex").slice(0, 48);
+}
 
 function cookieFlags(maxAge: number) {
   return {
@@ -32,6 +40,20 @@ export function getOrCreateUserId(): string {
   const id = randomUUID();
   store.set(USER_COOKIE, id, cookieFlags(60 * 60 * 24 * 365));
   return id;
+}
+
+/**
+ * Stable, server-authoritative user id when a Google session exists.
+ * Unauthenticated visitors retain the existing anonymous cookie behavior.
+ */
+export async function scopedAuthUserId(): Promise<string> {
+  const { auth } = await import("@/auth");
+  const session = await auth();
+  const email = session?.user?.email;
+  if (typeof email === "string" && email.trim()) {
+    return googleUserId(email.trim().toLowerCase());
+  }
+  return getOrCreateUserId();
 }
 
 // --- Caseworker gate (demo-grade, server-enforced) ---

@@ -3,7 +3,7 @@ import { parseOrError, askRequestSchema } from "@/lib/validation/apiSchemas";
 import { getSessionService } from "@/lib/sessions/SessionService";
 import { getKnowledgeEngine } from "@/lib/knowledge/LocalKnowledgeEngine";
 import { getSourceService } from "@/lib/sources/SourceService";
-import { getOrCreateUserId } from "@/lib/auth/identity";
+import { getOrCreateUserId, scopedAuthUserId } from "@/lib/auth/identity";
 import { isOwner } from "@/lib/auth/owner";
 import { requireOwnerLocalAI, toAiErrorResponse } from "@/lib/ai/providerPolicy";
 import { getDatabase } from "@/lib/db/database";
@@ -47,7 +47,7 @@ export async function POST(req: Request) {
     const engine = requireOwnerLocalAI(isOwner());
 
     const sessions = getSessionService();
-    const ownerId = getOrCreateUserId();
+    const ownerId = await scopedAuthUserId();
     let docText = documentText ?? "";
     let lang = language;
     let extractionSummary: string | undefined;

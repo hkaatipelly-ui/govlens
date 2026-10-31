@@ -187,24 +187,18 @@ describe("server-side provider policy", () => {
     expect(engine).not.toBeInstanceOf(OllamaGemmaEngine);
   });
 
-  it("rejects an unauthenticated request for owner-only local AI (403)", () => {
-    expect(captured(() => requireOwnerLocalAI(false))).toMatchObject({
-      status: 403,
-      code: "OWNER_REQUIRED",
+  it("rejects an unauthenticated request for document analysis (401)", () => {
+    const failure = captured(() => requireOwnerLocalAI(false));
+    expect(failure).toMatchObject({
+      status: 401,
+      code: "GOOGLE_AUTH_REQUIRED",
     });
-    expect(captured(() => requireOwnerLocalAI(false))).toBeInstanceOf(AIPolicyError);
+    expect(failure).toBeInstanceOf(AIPolicyError);
   });
 
-  it("reports missing owner configuration as a server config error (503)", () => {
-    setEnv({ OWNER_ACCESS_CODE: undefined });
-    expect(captured(() => requireOwnerLocalAI(true))).toMatchObject({
-      status: 503,
-      code: "OWNER_NOT_CONFIGURED",
-    });
-    expect(captured(() => requireOwnerLocalAI(false))).toMatchObject({
-      status: 503,
-      code: "OWNER_NOT_CONFIGURED",
-    });
+  it("allows any authenticated Google identity to pass document analysis authorization", () => {
+    const engine = requireOwnerLocalAI(true);
+    expect(engine).toBeInstanceOf(GeminiEngine);
   });
 
   it("never lets a public session reach the local engine through the public path", () => {

@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { parseOrError, createGrievanceRequestSchema } from "@/lib/validation/apiSchemas";
 import { getGrievanceService } from "@/lib/grievances/GrievanceService";
-import { getOrCreateUserId } from "@/lib/auth/identity";
+import { getOrCreateUserId, scopedAuthUserId } from "@/lib/auth/identity";
 
 export async function GET(req: Request) {
   try {
-    const ownerId = getOrCreateUserId();
+    const ownerId = await scopedAuthUserId();
     const url = new URL(req.url);
     const limit = Number(url.searchParams.get("limit") ?? "20");
     const offset = Number(url.searchParams.get("offset") ?? "0");
@@ -30,7 +30,7 @@ export async function POST(req: Request) {
   if (!parsed.ok) return NextResponse.json({ error: parsed.message }, { status: 400 });
 
   try {
-    const ownerId = getOrCreateUserId();
+    const ownerId = await scopedAuthUserId();
     const idempotencyKey =
       req.headers.get("Idempotency-Key")?.trim() ?? parsed.data.idempotencyKey;
     const svc = getGrievanceService();

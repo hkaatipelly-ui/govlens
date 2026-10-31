@@ -29,7 +29,7 @@ export default function OwnerPage() {
     setAuthBusy(true);
     setError(null);
     try {
-      await signIn("google", { callbackUrl: "/owner" });
+      await signIn("google", { callbackUrl: "/scan" });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign-in failed.");
       setAuthBusy(false);
@@ -52,20 +52,13 @@ export default function OwnerPage() {
         <div className="gov-card border-t-4 border-t-gov-navy p-4">
           <h1 className="text-xl font-extrabold text-gov-navy sm:text-2xl">Sign in to GovLens</h1>
           <p className="mt-1 text-sm text-gov-muted">
-            Authorized project owner access. Google Gemini is the only AI provider.
+            Continue with your Google account to access document assistance and public services.
           </p>
         </div>
 
         {status === null ? (
           <div className="gov-card p-6 text-center">
-            <p className="text-sm text-gov-muted">Checking owner session...</p>
-          </div>
-        ) : !status.configured ? (
-          <div className="gov-card p-6" role="alert">
-            <p className="font-extrabold text-gov-red">Owner access is not configured</p>
-            <p className="mt-1 text-sm text-gov-muted">
-              Set OWNER_GOOGLE_EMAIL and Google OAuth credentials in the environment, then redeploy.
-            </p>
+            <p className="text-sm text-gov-muted">Checking sign-in status...</p>
           </div>
         ) : status.authenticated ? (
           <>

@@ -43,16 +43,11 @@ export class AIPolicyError extends Error {
  * Never returns Gemini: Ollama being down must not switch providers.
  */
 export function requireOwnerLocalAI(owner: boolean): AIEngine {
-  const issue = ownerConfigurationIssue();
-  if (issue) {
-    throw new AIPolicyError(503, "OWNER_NOT_CONFIGURED", issue);
-  }
   if (!owner) {
     throw new AIPolicyError(
-      403,
-      "OWNER_REQUIRED",
-      "Document analysis is reserved for the authenticated project owner. " +
-        "Sign in at /owner to continue."
+      401,
+      "GOOGLE_AUTH_REQUIRED",
+      "Sign in with Google to continue."
     );
   }
   return getGeminiEngine();

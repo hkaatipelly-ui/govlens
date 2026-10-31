@@ -2,6 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { signIn } from "next-auth/react";
 import Breadcrumb from "../components/Breadcrumb";
 import CameraCapture from "../components/CameraCapture";
 import DocumentUploader from "../components/DocumentUploader";
@@ -15,7 +16,7 @@ import {
   IngestionError,
   type SupportedFileType,
 } from "../lib/ingestion";
-import { apiAnalyze, type AnalyzeResponse, type AnalyzeStage, apiOwnerStatus } from "../services/api";
+import { apiAnalyze, type AnalyzeResponse, type AnalyzeStage } from "../services/api";
 import type { Verification } from "@/lib/verification/schemas";
 
 type Phase = "capture" | "reading" | "review" | "understanding" | "gate";
@@ -54,7 +55,7 @@ function ScanForm() {
   const [liveStage, setLiveStage] = useState<AnalyzeStage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [gate, setGate] = useState<{ verification: Verification; result: AnalyzeResponse } | null>(null);
-  const [ownerAuth, setOwnerAuth] = useState<boolean>(false);
+  const [userAuth, setUserAuth] = useState<boolean>(false);
   const [cloudConsent, setCloudConsent] = useState(false);
 
   const mode = searchParams.get("mode");
@@ -267,7 +268,10 @@ function ScanForm() {
   }, [text, fileMeta, commitResult, cloudConsent]);
 
   useEffect(() => {
-    apiOwnerStatus().then((r) => setOwnerAuth(r.authenticated)).catch(() => setOwnerAuth(false));
+    fetch("/api/auth/session")
+      .then((r) => r.json())
+      .then((s) => setUserAuth(Boolean((s as { user?: { email?: string } | null })?.user?.email?.trim())))
+      .catch(() => setUserAuth(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
@@ -284,6 +288,27 @@ function ScanForm() {
   return (
     <main id="main-content">
       <Breadcrumb items={[{ label: "Home", href: "/" }, { label: "Documents", href: "/documents" }, { label: "Scan" }]} />
+
+      {!userAuth && (
+        <section className="gov-container mt-2">
+          <div className="gov-card border-t-4 border-t-gov-blue p-4 text-center">
+            <p className="text-sm font-bold text-gov-navy">
+              Sign in with Google to scan and understand your government documents.
+            </p>
+            <button
+              type="button"
+              onClick={() => void signIn("google", { callbackUrl: "/scan" })}
+              className="gov-btn-primary mt-3 w-full sm:w-auto"
+            >
+              Continue with Google
+            </button>
+            <p className="mt-1 text-xs text-gov-muted">
+              Your Google account and a verified email are required. GovLens never posts to your
+              account.
+            </p>
+          </div>
+        </section>
+      )}
 
       <div className="gov-container mt-2 space-y-4 pb-4">
         <div className="gov-card border-t-4 border-t-gov-blue p-4 sm:p-6">
@@ -371,7 +396,7 @@ function ScanForm() {
           </p>
         )}
 
-        {(phase === "review" || phase === "understanding") && (
+        {(phase === "review" || phase === "understanding") && userAuth && (
           <div className="gov-card p-4 space-y-3">
             <p className="text-sm font-bold text-gov-navy">Cloud processing with Google Gemini</p>
             <p className="text-xs text-gov-muted">

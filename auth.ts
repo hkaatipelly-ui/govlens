@@ -25,18 +25,21 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const rawEmail = profile?.email;
       if (!rawEmail) return false;
       if (profile?.email_verified !== true) return false;
-      const allowed = allowedOwnerEmail();
-      if (!allowed) return false;
-      const normalised = String(rawEmail).trim().toLowerCase();
-      if (normalised !== allowed) return false;
       return true;
     },
   },
   events: {
-    async signIn() {
+    async signIn({ account, profile }) {
       try {
-        const session = issueOwnerSession();
-        setOwnerCookie(session);
+        const rawEmail = profile?.email;
+        const email = typeof rawEmail === "string" ? rawEmail.trim().toLowerCase() : "";
+        const isOwner = account?.provider === "google" && email && email === allowedOwnerEmail();
+        if (isOwner) {
+          const session = issueOwnerSession();
+          setOwnerCookie(session);
+        } else {
+          clearOwnerCookie();
+        }
       } catch {
         clearOwnerCookie();
       }

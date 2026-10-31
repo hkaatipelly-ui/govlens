@@ -6,7 +6,7 @@ import { getKnowledgeEngine } from "@/lib/knowledge/LocalKnowledgeEngine";
 import { getActionEngine } from "@/lib/actions/ActionEngine";
 import { getAIEngine } from "@/lib/ai/OllamaGemmaEngine";
 import { validateExtractionJson } from "@/lib/extraction/schemas";
-import { getOrCreateUserId } from "@/lib/auth/identity";
+import { getOrCreateUserId, scopedAuthUserId } from "@/lib/auth/identity";
 import { isOwner } from "@/lib/auth/owner";
 
 /**
@@ -17,7 +17,7 @@ import { isOwner } from "@/lib/auth/owner";
 export async function GET() {
   try {
     // Citizen list: ONLY the current anonymous owner's cases (server-enforced).
-    const ownerId = getOrCreateUserId();
+    const ownerId = await scopedAuthUserId();
     return NextResponse.json({ cases: getCaseService().list(ownerId) });
   } catch (err) {
     return NextResponse.json(
@@ -41,7 +41,7 @@ export async function POST(req: Request) {
     const raw = body as Record<string, unknown>;
     const sessions = getSessionService();
     const cases = getCaseService();
-    const ownerId = getOrCreateUserId();
+    const ownerId = await scopedAuthUserId();
 
     // Path A: canonical — build from a stored session.
     if (parsed.data.sessionId) {

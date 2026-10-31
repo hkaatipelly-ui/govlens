@@ -24,6 +24,7 @@ export default function GovFooter() {
             <li><Link className="hover:underline" href="/schemes">Schemes</Link></li>
             <li><Link className="hover:underline" href="/documents">My Documents</Link></li>
             <li><Link className="hover:underline" href="/help">Help &amp; FAQs</Link></li>
+            <li><Link className="hover:underline" href="/privacy">Privacy Policy</Link></li>
           </ul>
         </nav>
         <div>

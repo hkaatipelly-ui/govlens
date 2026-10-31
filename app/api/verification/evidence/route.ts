@@ -3,7 +3,7 @@ import { parseOrError } from "@/lib/validation/apiSchemas";
 import { userEvidenceSchema } from "@/lib/verification/external-schemas";
 import { verifyWithUserEvidence, ensureAdapters } from "@/lib/verification/pipeline";
 import { getVerificationStore } from "@/lib/verification/store";
-import { getOrCreateUserId } from "@/lib/auth/identity";
+import { getOrCreateUserId, scopedAuthUserId } from "@/lib/auth/identity";
 import { getDatabase } from "@/lib/db/database";
 import { migrate } from "@/lib/db/migrations";
 import { z } from "zod";
@@ -31,7 +31,7 @@ export async function POST(req: Request) {
 
   try {
     ensureAdapters();
-    const ownerId = getOrCreateUserId();
+    const ownerId = await scopedAuthUserId();
     const db = getDatabase();
     migrate(db);
     const docRow = db

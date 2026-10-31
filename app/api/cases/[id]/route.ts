@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { parseOrError, updateCaseRequestSchema } from "@/lib/validation/apiSchemas";
 import { getCaseService } from "@/lib/cases/CaseService";
-import { getOrCreateUserId, isCaseworker } from "@/lib/auth/identity";
+import { isCaseworker, scopedAuthUserId } from "@/lib/auth/identity";
 
 /**
  * GET /api/cases/:id — full case detail. Citizens see ONLY their own cases
@@ -10,7 +10,7 @@ import { getOrCreateUserId, isCaseworker } from "@/lib/auth/identity";
 /** PATCH /api/cases/:id — owner-only status update (caseworkers use /api/caseworker/*). */
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   try {
-    const ownerId = getOrCreateUserId();
+    const ownerId = await scopedAuthUserId();
     const found = getCaseService().get(params.id, ownerId);
     if (!found) return NextResponse.json({ error: "Case not found." }, { status: 404 });
     return NextResponse.json({ case: found });
@@ -35,7 +35,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   try {
     const svc = getCaseService();
     // Caseworker-authenticated callers may update any case; citizens only their own.
-    const ownerId = isCaseworker() ? undefined : getOrCreateUserId();
+    const ownerId = isCaseworker() ? undefined : await scopedAuthUserId();
     const updated = svc.updateStatus(params.id, parsed.data.status, ownerId);
     if (!updated) return NextResponse.json({ error: "Case not found." }, { status: 404 });
     return NextResponse.json({ case: updated });
