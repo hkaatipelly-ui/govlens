@@ -7,7 +7,7 @@ import GovFooter from "./components/GovFooter";
 export const metadata: Metadata = {
   title: "GovLens — Citizen Document Assistance Platform",
   description:
-    "Understand Indian government documents in simple language. English, Telugu and Hindi. Powered by local AI.",
+    "Understand Indian government documents in simple language. English, Telugu and Hindi. Powered by Google Gemini Cloud AI.",
   manifest: "/manifest.json",
 };
 

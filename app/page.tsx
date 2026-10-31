@@ -23,7 +23,7 @@ export default function HomePage() {
               <p className="mt-2 max-w-xl text-sm text-white/85 sm:text-base">
                 GovLens helps citizens understand official notices, forms and
                 public-service communications — in English, తెలుగు and हिन्दी —
-                using AI that runs locally on this device.
+                using Google Gemini Cloud AI in English, తెలుగు and हिन्दी with your explicit consent.
               </p>
               <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                 <Link href="/scan" className="gov-btn-saffron">
@@ -40,7 +40,7 @@ export default function HomePage() {
             <div className="md:col-span-2" aria-label="Service highlights">
               <div className="grid h-full grid-cols-2 gap-2">
                 {[
-                  ["🔒", "100% Local", "No cloud upload"],
+                  ["☁️", "GEMINI CLOUD AI", "Requires consent"],
                   ["🗣", "3 Languages", "EN · TE · HI"],
                   ["📑", "Official Sources", "Grounded answers"],
                   ["✅", "Action Checklist", "Next steps"],

@@ -11,8 +11,9 @@ export default function GovFooter() {
             <span className="font-semibold">గోవ్‌లెన్స్</span>
           </p>
           <p className="mt-2 text-white/80">
-            A citizen government-service platform powered by local AI. All document
-            processing happens on this device — nothing is sent to the cloud.
+            A citizen government-service platform powered by Google Gemini Cloud AI.
+            Cloud processing happens only after the user gives explicit consent and existing
+            document privacy checks pass.
           </p>
         </div>
         <nav aria-label="Footer">
@@ -33,7 +34,8 @@ export default function GovFooter() {
             concerned department counter or portal before acting.
           </p>
           <p className="mt-3 text-xs text-white/60">
-            Prototype for demonstration · Local AI (Ollama + Gemma 3 4B) · English · తెలుగు · हिन्दी
+            A citizen government-service platform powered by Google Gemini Cloud AI.
+            Document contents are sent to Google Gemini only after explicit user consent.
           </p>
         </div>
       </div>

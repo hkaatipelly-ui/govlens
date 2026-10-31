@@ -337,7 +337,7 @@ export default function ResultPage() {
           </div>
           <div role="tabpanel" className="rounded-b-gov border border-gov-border bg-gov-offWhite p-4">
             {translating && tab === "te" && !extraction.summaryTelugu ? (
-              <p className="text-sm text-gov-muted">Translating to Telugu with local AI…</p>
+              <p className="text-sm text-gov-muted">Translating to Telugu with Google Gemini…</p>
             ) : (
               <p className="text-base leading-relaxed">{summary}</p>
             )}

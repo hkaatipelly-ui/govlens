@@ -32,6 +32,24 @@ function positiveInt(raw: string | undefined, fallback: number, min = 1): number
 
 /** Why owner sign-in is unavailable, or null when properly configured. */
 export function ownerConfigurationIssue(): string | null {
+  const accessCode = process.env.OWNER_ACCESS_CODE?.trim();
+  const googleEmail = process.env.OWNER_GOOGLE_EMAIL?.trim();
+  if (!accessCode && !googleEmail) {
+    return "Owner access is not configured: set OWNER_ACCESS_CODE in the server environment (no default is built in).";
+  }
+  if (!accessCode && googleEmail) {
+    if (
+      !process.env.AUTH_GOOGLE_ID?.trim() ||
+      !process.env.AUTH_GOOGLE_SECRET?.trim() ||
+      !process.env.AUTH_SECRET?.trim()
+    ) {
+      return "Google owner access is incomplete: set AUTH_GOOGLE_ID, AUTH_GOOGLE_SECRET, AUTH_SECRET and OWNER_GOOGLE_EMAIL.";
+    }
+    if (googleEmail.length < 3) {
+      return "Owner access is not configured: OWNER_GOOGLE_EMAIL is invalid.";
+    }
+    return null;
+  }
   const raw = process.env.OWNER_ACCESS_CODE;
   if (!raw || !raw.trim()) {
     return "Owner access is not configured: set OWNER_ACCESS_CODE in the server environment (no default is built in).";
