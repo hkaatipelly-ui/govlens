@@ -8,11 +8,8 @@ import { getDatabase } from "../db/database";
 import { migrate } from "../db/migrations";
 import { chunkSource, type RawSource } from "./chunker";
 import { scoreText, tokenize } from "./search";
-import type {
-  KnowledgeEngine,
-  KnowledgeHit,
-  SourceMetadata,
-} from "./KnowledgeEngine";
+import type { KnowledgeEngine, KnowledgeHit, SourceMetadata } from "./KnowledgeEngine";
+import { serviceDirectorySources } from "./serviceSources";
 
 import terminology from "@/app/data/terminology.json";
 import incomeDoc from "@/app/data/documents/telangana/meeseva-income-certificate.json";
@@ -46,6 +43,55 @@ export class LocalKnowledgeEngine implements KnowledgeEngine {
   constructor(private readonly db: Database = getDatabase()) {
     migrate(this.db);
     this.seedIfEmpty();
+    this.seedServiceSources();
+  }
+
+  /**
+   * Additive, idempotent seed (Phase 3): inserts official service-directory
+   * sources whose id is not yet present. Existing rows — including user-visible
+   * pre-existing corpus rows — are never modified or deleted.
+   */
+  private seedServiceSources(): void {
+    const exists = this.db.prepare(`SELECT 1 AS hit FROM government_sources WHERE id = ?`);
+    const insertSource = this.db.prepare(
+      `INSERT INTO government_sources
+       (id, title, department, state, document_type, language, source_url,
+        published_date, effective_date, last_verified, source_type, jurisdiction)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    const insertChunk = this.db.prepare(
+      `INSERT INTO knowledge_chunks (id, document_id, chunk_index, content, keywords_json)
+       VALUES (?, ?, ?, ?, ?)`
+    );
+    for (const source of serviceDirectorySources()) {
+      if (exists.get(source.id)) continue;
+      insertSource.run(
+        source.id, source.title, source.department, source.state, source.type,
+        source.language, source.sourceUrl, source.publishedDate,
+        source.effectiveDate, source.lastVerified, "official", source.state
+      );
+      for (const chunk of chunkSource(source)) {
+        insertChunk.run(chunk.id, chunk.documentId, chunk.chunkIndex, chunk.content, JSON.stringify(chunk.keywords));
+      }
+    }
+  }
+
+  /** Shared row → SourceMetadata mapping with additive Phase 3 fields. */
+  private static rowToMetadata(row: Record<string, unknown>): SourceMetadata {
+    return {
+      id: String(row.id),
+      title: String(row.title),
+      department: String(row.department),
+      state: String(row.state),
+      documentType: String(row.document_type),
+      language: String(row.language),
+      sourceUrl: String(row.source_url),
+      publishedDate: String(row.published_date),
+      effectiveDate: String(row.effective_date),
+      lastVerified: String(row.last_verified),
+      sourceType: String(row.source_type ?? "official"),
+      jurisdiction: String(row.jurisdiction || row.state),
+    };
   }
 
   private seedIfEmpty(): void {
@@ -82,7 +128,8 @@ export class LocalKnowledgeEngine implements KnowledgeEngine {
       .prepare(
         `SELECT c.id AS chunk_id, c.document_id, c.content,
                 s.title, s.department, s.state, s.document_type, s.language,
-                s.source_url, s.published_date, s.effective_date, s.last_verified
+                s.source_url, s.published_date, s.effective_date, s.last_verified,
+                s.source_type, s.jurisdiction
          FROM knowledge_chunks c
          JOIN government_sources s ON s.id = c.document_id`
       )
@@ -116,6 +163,8 @@ export class LocalKnowledgeEngine implements KnowledgeEngine {
             publishedDate: String(row.published_date),
             effectiveDate: String(row.effective_date),
             lastVerified: String(row.last_verified),
+            sourceType: String(row.source_type ?? "official"),
+            jurisdiction: String(row.jurisdiction || row.state),
           },
           score,
           matchedTerms: matched.slice(0, 8),
@@ -134,16 +183,7 @@ export class LocalKnowledgeEngine implements KnowledgeEngine {
       .prepare(`SELECT content FROM knowledge_chunks WHERE document_id = ? ORDER BY chunk_index`)
       .all(documentId);
     return {
-      id: String(row.id),
-      title: String(row.title),
-      department: String(row.department),
-      state: String(row.state),
-      documentType: String(row.document_type),
-      language: String(row.language),
-      sourceUrl: String(row.source_url),
-      publishedDate: String(row.published_date),
-      effectiveDate: String(row.effective_date),
-      lastVerified: String(row.last_verified),
+      ...LocalKnowledgeEngine.rowToMetadata(row),
       content: chunks.map((c) => String(c.content)).join(" "),
     };
   }

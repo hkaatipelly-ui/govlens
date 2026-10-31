@@ -436,6 +436,12 @@ export function migrate(db: Database): void {
     `ALTER TABLE cases ADD COLUMN file_type TEXT`,
     `ALTER TABLE cases ADD COLUMN owner_id TEXT`,
     `ALTER TABLE checklist_items ADD COLUMN owner_id TEXT`,
+    // Service-directory provenance (Phase 3, additive): source classification
+    // and jurisdiction. Existing rows default to 'official' (they were seeded
+    // from official government domains) and jurisdiction falls back to `state`
+    // where empty — see LocalKnowledgeEngine.rowToMetadata.
+    `ALTER TABLE government_sources ADD COLUMN source_type TEXT NOT NULL DEFAULT 'official'`,
+    `ALTER TABLE government_sources ADD COLUMN jurisdiction TEXT NOT NULL DEFAULT ''`,
   ]) {
     try {
       db.exec(ddl);
@@ -467,4 +473,52 @@ export function migrate(db: Database): void {
   } catch {
     /* indexes exist */
   }
+
+  // Phase 5: citizen grievances (additive, data-preserving).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS grievances (
+      id TEXT PRIMARY KEY,
+      reference_number TEXT NOT NULL UNIQUE,
+      owner_id TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      description TEXT NOT NULL,
+      category TEXT NOT NULL,
+      location TEXT,
+      status TEXT NOT NULL DEFAULT 'SUBMITTED',
+      source TEXT NOT NULL DEFAULT 'public-service',
+      attachments_json TEXT NOT NULL DEFAULT '[]',
+      idempotency_key TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS grievance_status_history (
+      id TEXT PRIMARY KEY,
+      grievance_id TEXT NOT NULL REFERENCES grievances(id),
+      previous_status TEXT,
+      new_status TEXT NOT NULL,
+      public_message TEXT,
+      internal_note TEXT,
+      actor_id TEXT NOT NULL,
+      actor_role TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_griev_owner ON grievances(owner_id);
+    CREATE INDEX IF NOT EXISTS idx_griev_status ON grievances(status);
+    CREATE INDEX IF NOT EXISTS idx_griev_ref ON grievances(reference_number);
+    CREATE INDEX IF NOT EXISTS idx_griev_history_g ON grievance_status_history(grievance_id);
+    CREATE INDEX IF NOT EXISTS idx_griev_history_created ON grievance_status_history(created_at);
+  `);
+  try {
+    db.exec(`ALTER TABLE grievances ADD COLUMN idempotency_key TEXT`);
+  } catch {
+    /* column already exists */
+  }
+  try {
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_griev_owner_idem ON grievances(owner_id, idempotency_key)`);
+  } catch {
+    /* ignore */
+  }
+
 }

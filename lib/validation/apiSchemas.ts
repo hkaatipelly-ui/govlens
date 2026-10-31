@@ -13,6 +13,28 @@ export const analyzeRequestSchema = z.object({
   imageDataUrl: z.string().trim().min(100).max(1000000).optional(),
   fileName: z.string().trim().min(1).max(120).optional(),
   fileType: z.enum(["pdf", "docx", "jpeg", "jpg", "png"]).optional(),
+  cloudConsent: z.boolean().optional(),
+});
+
+export const createGrievanceRequestSchema = z.object({
+  subject: z.string().trim().min(1).max(200),
+  description: z.string().trim().min(1).max(5000),
+  category: z.string().trim().min(1).max(80),
+  location: z.string().trim().max(200).optional(),
+  source: z.string().trim().max(60).optional(),
+  attachments: z
+    .array(
+      z.object({
+        filename: z.string().trim().min(1).max(200),
+        contentType: z.string().trim().min(1).max(120),
+        size: z.number().int().min(0).max(10 * 1024 * 1024),
+        storagePath: z.string().trim().min(1).max(500),
+      })
+    )
+    .max(10)
+    .optional(),
+  language: z.enum(["en", "te", "hi"]).optional(),
+  idempotencyKey: z.string().trim().min(8).max(64).optional(),
 });
 
 export const askRequestSchema = z.object({

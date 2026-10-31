@@ -11,7 +11,7 @@ export default function HealthNotice() {
     apiHealth()
       .then((h) => setHealth(h))
       .catch(() =>
-        setHealth({ ok: false, model: "gemma3:4b", detail: "Could not reach the GovLens server." })
+        setHealth({ ok: false, model: "gemini", detail: "Could not reach the GovLens server." })
       );
   }, []);
 
@@ -20,12 +20,11 @@ export default function HealthNotice() {
   return (
     <div role="alert" className="gov-container pt-3">
       <div className="rounded-gov border-2 border-gov-red bg-red-50 p-4">
-        <p className="font-bold text-gov-red">⚠ Local AI unavailable</p>
+          <p className="font-bold text-gov-red">⚠ Gemini AI unavailable</p>
         <p className="mt-1 text-sm">{health.detail}</p>
         <p className="mt-1 text-xs text-gov-muted">
-          GovLens runs on Ollama ({health.model}) at localhost:11434. Start it with{" "}
-          <code>ollama serve</code> + <code>ollama pull {health.model}</code>. Nothing is sent to
-          the cloud.
+            GovLens uses Google Gemini ({health.model}). Set GEMINI_ENABLED and GEMINI_API_KEY in the
+            server environment. Document content requires cloud consent.
         </p>
       </div>
     </div>

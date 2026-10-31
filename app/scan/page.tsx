@@ -15,7 +15,7 @@ import {
   IngestionError,
   type SupportedFileType,
 } from "../lib/ingestion";
-import { apiAnalyze, type AnalyzeResponse, type AnalyzeStage } from "../services/api";
+import { apiAnalyze, type AnalyzeResponse, type AnalyzeStage, apiOwnerStatus } from "../services/api";
 import type { Verification } from "@/lib/verification/schemas";
 
 type Phase = "capture" | "reading" | "review" | "understanding" | "gate";
@@ -54,6 +54,8 @@ function ScanForm() {
   const [liveStage, setLiveStage] = useState<AnalyzeStage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [gate, setGate] = useState<{ verification: Verification; result: AnalyzeResponse } | null>(null);
+  const [ownerAuth, setOwnerAuth] = useState<boolean>(false);
+  const [cloudConsent, setCloudConsent] = useState(false);
 
   const mode = searchParams.get("mode");
 
@@ -63,6 +65,7 @@ function ScanForm() {
   }, []);
 
   const runOcr = useCallback(async (file: File) => {
+    setCloudConsent(false);
     setPhase("reading");
     setOcrError(null);
     setOcrProgress(0);
@@ -98,6 +101,7 @@ function ScanForm() {
    * PDF/DOCX are normalized to text first, then enter the SAME pipeline.
    */
   const handleFile = useCallback(async (file: File) => {
+    setCloudConsent(false);
     let kind: SupportedFileType;
     try {
       kind = validateFile(file);
@@ -106,6 +110,7 @@ function ScanForm() {
       return;
     }
     if (kind === "jpg" || kind === "jpeg" || kind === "png") {
+      setCloudConsent(false);
       await runOcr(file);
       return;
     }
@@ -175,11 +180,35 @@ function ScanForm() {
     [imageUrl, fileMeta, text, router]
   );
 
+  const analyzingRef = useRef(false);
   const analyze = useCallback(async () => {
+    if (analyzingRef.current) return;
     if (!text.trim()) {
       setError("There is no document text to understand yet. Capture a photo or type the text.");
       return;
     }
+    if (!cloudConsent) {
+      // Frontend consent gate: no fetch has started and no document bytes have
+      // left the browser. Keep this distinct from network/Gemini failures.
+      console.info(
+        JSON.stringify({
+          component: "scan",
+          event: "consent_not_granted",
+          stage: "pre_request",
+          requestStarted: false,
+          documentSentToBackend: false,
+          geminiRequestStarted: false,
+          cancellationReason: "CONSENT_NOT_GRANTED",
+        })
+      );
+      setError(
+        "Cloud processing requires explicit consent. Please check the consent box above, then tap " +
+          "Understand Document. No document content has been sent."
+      );
+      setPhase("review");
+      return;
+    }
+    analyzingRef.current = true;
     setBusy(true);
     setError(null);
     setGate(null);
@@ -203,6 +232,7 @@ function ScanForm() {
         imageDataUrl,
         fileName: fileMeta?.name ?? undefined,
         fileType: fileMeta?.type ?? undefined,
+        cloudConsent,
         onStage: (stage) => setLiveStage(stage),
       });
       const status = result.verification.status;
@@ -214,14 +244,32 @@ function ScanForm() {
         commitResult(result, false);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not understand the document.");
+      const e = err as Error & { code?: string };
+      console.error(
+        JSON.stringify({
+          component: "scan",
+          event: "analysis_failed",
+          stage: "backend_or_gemini",
+          requestStarted: true,
+          documentSentToBackend: true,
+          errorName: e instanceof Error ? e.name : undefined,
+          errorCode: typeof e.code === "string" ? e.code : undefined,
+          sanitizedMessage: e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200),
+        })
+      );
+      setError(e instanceof Error ? e.message : "Could not understand the document.");
       setPhase("review");
     } finally {
+      analyzingRef.current = false;
       setBusy(false);
       setLiveStage(null);
     }
-  }, [text, fileMeta, commitResult]);
+  }, [text, fileMeta, commitResult, cloudConsent]);
 
+  useEffect(() => {
+    apiOwnerStatus().then((r) => setOwnerAuth(r.authenticated)).catch(() => setOwnerAuth(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     if (ocrConfidence !== undefined) {
       updateSession({
@@ -243,8 +291,8 @@ function ScanForm() {
             Scan Government Document
           </h1>
           <p className="mt-1 text-sm text-gov-muted">
-            Take a photo of your notice, form, certificate or receipt. GovLens reads it on
-            this device, checks the document type with local AI, and explains it in simple language.
+            Take a photo of your notice, form, certificate or receipt. GovLens reads text on this
+            device and uses Google Gemini to check the document type and explain it in simple language.
           </p>
 
           {(phase !== "capture" || imageUrl) && phase !== "gate" && (
@@ -324,6 +372,34 @@ function ScanForm() {
         )}
 
         {(phase === "review" || phase === "understanding") && (
+          <div className="gov-card p-4 space-y-3">
+            <p className="text-sm font-bold text-gov-navy">Cloud processing with Google Gemini</p>
+            <p className="text-xs text-gov-muted">
+              Document contents are sent to Google Gemini. An internet connection is required.
+            </p>
+            <div className="rounded-gov border border-gov-border bg-gov-offWhite p-3">
+              <label className="flex items-start gap-3 text-sm text-gov-navy" htmlFor="cloud-consent-checkbox">
+                <input
+                  id="cloud-consent-checkbox"
+                  type="checkbox"
+                  checked={cloudConsent}
+                  onChange={(e) => setCloudConsent(e.target.checked)}
+                  className="mt-1 h-4 w-4 shrink-0 accent-gov-blue"
+                />
+                <span className="font-semibold">
+                  I consent to sending this document and its extracted text to Google Gemini for
+                  cloud-based analysis.
+                </span>
+              </label>
+              <p className="mt-2 text-xs text-gov-muted">
+                Your document and extracted text will be sent to Google&apos;s Gemini service for
+                processing. Do not continue unless you agree.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {(phase === "review" || phase === "understanding") && (
           <div className="flex flex-col gap-2 sm:flex-row">
             <button
               type="button"
@@ -336,6 +412,7 @@ function ScanForm() {
             <button
               type="button"
               onClick={() => {
+                setCloudConsent(false);
                 setPhase("capture");
                 setImageUrl(null);
                 setText("");

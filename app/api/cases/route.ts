@@ -7,6 +7,7 @@ import { getActionEngine } from "@/lib/actions/ActionEngine";
 import { getAIEngine } from "@/lib/ai/OllamaGemmaEngine";
 import { validateExtractionJson } from "@/lib/extraction/schemas";
 import { getOrCreateUserId } from "@/lib/auth/identity";
+import { isOwner } from "@/lib/auth/owner";
 
 /**
  * GET /api/cases — list all cases (newest first).
@@ -56,25 +57,29 @@ export async function POST(req: Request) {
       const evidence = await kb.search(session.documentText, 3);
       const checklist = getActionEngine().buildChecklist(session.extraction, evidence);
       // AI action plan enriches the checklist (falls back to rule-based on failure).
-      try {
-        const plan = await getAIEngine().generateActionPlan({
-          extraction: session.extraction,
-          evidence,
-        });
-        const seen = new Set(checklist.map((c) => c.label.toLowerCase()));
-        plan.actions.forEach((a, i) => {
-          if (!seen.has(a.title.toLowerCase())) {
-            checklist.push({
-              id: `ai-${i + 1}`,
-              label: a.title,
-              detail: a.detail || undefined,
-              sourceId: plan.sourceIds[0],
-              done: false,
-            });
-          }
-        });
-      } catch {
-        /* rule-based checklist stands on its own */
+      // Owner-controlled local AI: the enrichment is skipped for public sessions so
+      // an unauthenticated request can never indirectly invoke Ollama.
+      if (isOwner()) {
+        try {
+          const plan = await getAIEngine().generateActionPlan({
+            extraction: session.extraction,
+            evidence,
+          });
+          const seen = new Set(checklist.map((c) => c.label.toLowerCase()));
+          plan.actions.forEach((a, i) => {
+            if (!seen.has(a.title.toLowerCase())) {
+              checklist.push({
+                id: `ai-${i + 1}`,
+                label: a.title,
+                detail: a.detail || undefined,
+                sourceId: plan.sourceIds[0],
+                done: false,
+              });
+            }
+          });
+        } catch {
+          /* rule-based checklist stands on its own */
+        }
       }
       const history = sessions.history(session.id, ownerId);
       const created = cases.create({

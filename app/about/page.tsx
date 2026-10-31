@@ -42,7 +42,7 @@ export default function AboutPage() {
             <table className="gov-table">
               <tbody>
                 <tr><th scope="row" className="!w-40">App</th><td>Next.js + TypeScript + Tailwind CSS</td></tr>
-                <tr><th scope="row">AI</th><td>Ollama (localhost:11434) · Gemma 3 4B via AIEngine abstraction</td></tr>
+                <tr><th scope="row">AI</th><td>Google Gemini via AIEngine abstraction (configured server-side)</td></tr>
                 <tr><th scope="row">Reading</th><td>Tesseract.js OCR (English + Telugu)</td></tr>
                 <tr><th scope="row">Knowledge</th><td>Local JSON corpus + terminology aliases (Telangana & Govt. of India)</td></tr>
                 <tr><th scope="row">Voice</th><td>Web Speech recognition & synthesis (en-IN, te-IN, hi-IN)</td></tr>

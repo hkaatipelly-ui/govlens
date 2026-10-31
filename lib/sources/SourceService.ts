@@ -55,6 +55,9 @@ function rowToSource(row: Record<string, unknown>): GovernmentSource {
     publishedDate: String(row.published_date),
     effectiveDate: String(row.effective_date),
     lastVerified: String(row.last_verified),
+    // Additive Phase 3 fields: classification + jurisdiction (falls back to state).
+    sourceType: String(row.source_type ?? "official"),
+    jurisdiction: String(row.jurisdiction || row.state),
   };
 }
 

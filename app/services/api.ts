@@ -10,13 +10,17 @@ export type { DocumentExtraction, KnowledgeHit, GovernmentSource, Case, CaseStat
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;
+    let code: string | undefined;
     try {
-      const body = (await res.json()) as { error?: string };
+      const body = (await res.json()) as { error?: string; code?: string };
       if (body.error) detail = body.error;
+      if (body.code) code = body.code;
     } catch {
       /* keep default */
     }
-    throw new Error(detail);
+    const err = new Error(detail) as Error & { code?: string };
+    if (code) err.code = code;
+    throw err;
   }
   return res.json() as Promise<T>;
 }
@@ -65,16 +69,54 @@ export interface AnalyzeResponse {
   legalDetails?: LegalDetails | null;
 }
 
+export interface GeminiHealthStatus {
+  /** True when GEMINI_ENABLED=true and GEMINI_API_KEY is present. */
+  configured: boolean;
+  enabled: boolean;
+  model: string;
+  /** True when a public-service request could be served right now. */
+  ok: boolean;
+  lastOutcome: "ok" | "error" | null;
+  lastErrorKind: string | null;
+  detail: string;
+}
+
 export async function apiHealth(): Promise<{
   status: "ok" | "degraded";
   ollama: boolean;
   modelAvailable: boolean;
   model: string;
+  gemini?: GeminiHealthStatus;
   ok: boolean;
   detail: string;
 }> {
   const res = await fetch("/api/health", { cache: "no-store" });
   return json(res);
+}
+
+// --- Owner session (owner-controlled local AI; the server sets the HttpOnly cookie) ---
+
+export interface OwnerStatus {
+  authenticated: boolean;
+  configured: boolean;
+}
+
+export async function apiOwnerStatus(): Promise<OwnerStatus> {
+  return json(await fetch("/api/owner/login", { cache: "no-store" }));
+}
+
+export async function apiOwnerLogin(code: string): Promise<{ ok: boolean }> {
+  return json(
+    await fetch("/api/owner/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
+    })
+  );
+}
+
+export async function apiOwnerLogout(): Promise<{ ok: boolean }> {
+  return json(await fetch("/api/owner/login", { method: "DELETE" }));
 }
 
 export type AnalyzeStage =
@@ -93,6 +135,8 @@ export async function apiAnalyze(
     imageDataUrl?: string;
     fileName?: string | null;
     fileType?: "pdf" | "docx" | "jpeg" | "jpg" | "png" | null;
+    provider?: "ollama" | "gemini";
+    cloudConsent?: boolean;
     onStage?: (stage: AnalyzeStage, label: string) => void;
   } = {}
 ): Promise<AnalyzeResponse> {
@@ -106,6 +150,8 @@ export async function apiAnalyze(
       imageDataUrl: opts.imageDataUrl,
       fileName: opts.fileName ?? undefined,
       fileType: opts.fileType ?? undefined,
+      provider: opts.provider ?? "ollama",
+      cloudConsent: opts.cloudConsent ?? false,
     }),
   });
   const contentType = res.headers.get("content-type") ?? "";
@@ -130,7 +176,11 @@ export async function apiAnalyze(
         opts.onStage(evt.stage as AnalyzeStage, String(evt.label ?? evt.stage));
       }
       if (evt.done === true) return evt as unknown as AnalyzeResponse;
-      if (typeof evt.error === "string") throw new Error(evt.error as string);
+      if (typeof evt.error === "string") {
+        const err = new Error(evt.error as string) as Error & { code?: string };
+        if (typeof evt.code === "string") err.code = evt.code as string;
+        throw err;
+      }
     }
   }
   throw new Error("Analysis stream ended unexpectedly.");
@@ -141,6 +191,37 @@ export interface AskResponse {
   sources: GovernmentSource[];
   language: string;
   grounded: boolean;
+}
+
+export interface PublicAnswerSource {
+  sourceId: string;
+  title: string;
+  url: string | null;
+  sourceType: string;
+  lastReviewed: string | null;
+  relevantExcerpt: string;
+}
+
+export interface PublicAskResponse {
+  answer: string;
+  intent: string;
+  supported: boolean;
+  limitations: string;
+  sources: PublicAnswerSource[];
+  language: string;
+  grounded: boolean;
+}
+
+export async function apiPublicAsk(
+  question: string,
+  language: "en" | "te" | "hi" = "en"
+): Promise<PublicAskResponse> {
+  const res = await fetch("/api/ask", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question, language }),
+  });
+  return json(res);
 }
 
 export async function apiAsk(
@@ -157,6 +238,63 @@ export async function apiAsk(
       language: opts.language ?? "en",
     }),
   });
+  return json(res);
+}
+
+export interface GrievanceShape {
+  id: string;
+  referenceNumber: string;
+  subject: string;
+  category: string;
+  status: string;
+  createdAt: string;
+}
+
+export async function apiCreateGrievance(input: {
+  subject: string;
+  description: string;
+  category: string;
+  location?: string;
+  language?: "en" | "te" | "hi";
+  idempotencyKey?: string;
+}): Promise<{
+  grievance: GrievanceShape;
+}> {
+  const res = await fetch("/api/grievances", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(input.idempotencyKey ? { "Idempotency-Key": input.idempotencyKey } : {}),
+    },
+    body: JSON.stringify({
+      subject: input.subject,
+      description: input.description,
+      category: input.category,
+      location: input.location,
+      language: input.language,
+      idempotencyKey: input.idempotencyKey,
+    }),
+  });
+  return json(res);
+}
+
+export async function apiListGrievances(
+  limit = 20,
+  offset = 0
+): Promise<{ grievances: GrievanceShape[]; total: number }> {
+  const res = await fetch(`/api/grievances?limit=${limit}&offset=${offset}`);
+  return json(res);
+}
+
+export async function apiGetGrievance(id: string): Promise<{ grievance: any }> {
+  const res = await fetch(`/api/grievances/${id}`);
+  return json(res);
+}
+
+export async function apiGrievanceHistory(
+  id: string
+): Promise<{ status: string; history: any[] }> {
+  const res = await fetch(`/api/grievances/${id}/history`);
   return json(res);
 }
 

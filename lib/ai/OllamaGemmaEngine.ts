@@ -620,10 +620,12 @@ function stripDataUrl(dataUrl: string): string {
 }
 
 let singleton: AIEngine | null = null;
-
 export function getAIEngine(): AIEngine {
-  if (!singleton) singleton = new OllamaGemmaEngine();
-  return singleton;
+  if (!singleton) {
+    const { getGeminiEngine } = require("./GeminiEngine");
+    singleton = getGeminiEngine();
+  }
+  return singleton!;
 }
 
 export async function checkOllamaHealth(): Promise<{
@@ -634,7 +636,9 @@ export async function checkOllamaHealth(): Promise<{
 }> {
   const model = ollamaModel();
   try {
-    const res = await fetch(`${ollamaBaseUrl()}/api/tags`);
+    // Availability must be checked live: a cached GET would report a stale
+    // "ok" (or a stale failure) for a server that has since stopped/started.
+    const res = await fetch(`${ollamaBaseUrl()}/api/tags`, { cache: "no-store" });
     if (!res.ok) return { status: "degraded", ollama: false, modelAvailable: false, model };
     const data = (await res.json()) as { models?: Array<{ name?: string; model?: string }> };
     const names = (data.models ?? []).map((m) => m.name ?? m.model ?? "");

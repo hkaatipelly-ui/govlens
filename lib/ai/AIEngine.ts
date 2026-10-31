@@ -24,6 +24,12 @@ export interface QuestionInput {
   extractionSummary?: string;
   /** Recent conversation turns for follow-up context (still document-scoped). */
   history?: Array<{ role: "user" | "assistant"; content: string }>;
+  /**
+   * Phase 4 (public Q&A): deterministic note when retrieved sources disagree
+   * (different links/review dates for the same topic). Server-computed — the
+   * model never decides whether a conflict exists.
+   */
+  sourceConflictNote?: string;
 }
 
 export interface TranslationInput {
@@ -78,6 +84,13 @@ export interface AnalysisResult {
 export interface AnswerResult {
   answer: string;
   grounded: boolean;
+  /** Phase 4: model-stated caveats (validated + bounded server-side). */
+  limitations?: string;
+  /**
+   * Phase 4: source ids the model chose to cite. The server validates these
+   * against retrieved ids — unknown ids are dropped, never rendered.
+   */
+  citedSourceIds?: string[];
 }
 
 export interface TranslationResult {

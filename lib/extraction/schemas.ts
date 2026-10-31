@@ -23,6 +23,10 @@ export type DocumentExtraction = z.infer<typeof documentExtractionSchema>;
 export const groundedAnswerSchema = z.object({
   answer: z.string().trim().min(1).max(2000),
   verified: z.boolean(),
+  /** Phase 4 (optional — document Q&A never sends it). */
+  limitations: z.string().max(600).optional(),
+  /** Phase 4: ids the model cites; validated against retrieval by the server. */
+  citedSourceIds: z.array(z.string().min(1).max(120)).max(8).optional(),
 });
 
 export type GroundedAnswerPayload = z.infer<typeof groundedAnswerSchema>;

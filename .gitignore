@@ -7,7 +7,17 @@ out/
 .env
 .env.local
 .env.*.local
+# Real environment files (the .example templates above stay tracked)
+.env.development
+.env.production
 *.pem
 *.key
 id_rsa*
 id_ed25519*
+
+# Next.js generated build files
+.next/
+.next-dev/
+
+# TypeScript incremental build cache
+*.tsbuildinfo

@@ -1,7 +1,17 @@
+export const runtime = "nodejs";
+// Vercel serverless function budget. Set to the platform-supported limit for the
+// deployed plan (Hobby starts at 300 seconds; Pro can use up to 600 seconds).
+export const maxDuration = 300;
+
 import { parseOrError, analyzeRequestSchema } from "@/lib/validation/apiSchemas";
 import { getSessionService } from "@/lib/sessions/SessionService";
 import { getKnowledgeEngine } from "@/lib/knowledge/LocalKnowledgeEngine";
-import { getAIEngine, AIEngineUnavailableError, AITimeoutError } from "@/lib/ai/OllamaGemmaEngine";
+import { AIEngineUnavailableError, AITimeoutError } from "@/lib/ai/OllamaGemmaEngine";
+import { getGeminiEngine, geminiConfigurationIssue, geminiEnabled, sensitiveDocumentProcessingEnabled, sensitiveDocumentBlockMessage, GeminiError } from "@/lib/ai/GeminiEngine";
+import { isSensitiveDocument } from "@/lib/ai/geminiPrivacy";
+import type { AIEngine } from "@/lib/ai/AIEngine";
+import { requireOwnerLocalAI, toAiErrorResponse, AIPolicyError } from "@/lib/ai/providerPolicy";
+import { isOwner } from "@/lib/auth/owner";
 import { GovernmentDocumentVerificationService } from "@/lib/verification/GovernmentDocumentVerificationService";
 import { getActionEngine } from "@/lib/actions/ActionEngine";
 import { fillExtractionGaps, ensureExplanation } from "@/lib/extraction/postprocess";
@@ -48,14 +58,58 @@ export async function POST(req: Request) {
   }
   const parsed = parseOrError(analyzeRequestSchema, body);
   if (!parsed.ok) return Response.json({ error: parsed.message }, { status: 400 });
-  const { text, language, sessionId: requestedSession, imageDataUrl, fileName, fileType } = parsed.data;
+  const { text, language, sessionId: requestedSession, imageDataUrl, fileName, fileType, cloudConsent } = parsed.data;
+  const requestId =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `analyze-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  // Document analysis is now Google Gemini only. Owner-only access is preserved.
+  const cloudConsented = cloudConsent === true;
+  let engine: AIEngine;
+  let engineProvider: "gemini" = "gemini";
+  try {
+    if (!isOwner()) {
+      throw new AIPolicyError(403, "OWNER_REQUIRED", "Document analysis is reserved for the authenticated project owner. Sign in at /owner to continue.");
+    }
+    const sensitive = isSensitiveDocument(text);
+    if (sensitive && !sensitiveDocumentProcessingEnabled()) {
+      throw new AIPolicyError(403, "SENSITIVE_DOCUMENT_BLOCKED", sensitiveDocumentBlockMessage());
+    }
+    const issue = geminiConfigurationIssue();
+    if (issue) throw new AIPolicyError(503, geminiEnabled() ? "PUBLIC_AI_NOT_CONFIGURED" : "PUBLIC_AI_DISABLED", issue);
+    if (!cloudConsented) {
+      throw new AIPolicyError(403, "CLOUD_CONSENT_REQUIRED", "Explicit consent is required before document text can be sent to Google Gemini.");
+    }
+    engine = requireOwnerLocalAI(true);
+  } catch (err) {
+    const ai = toAiErrorResponse(err);
+    if (ai) {
+      const body: Record<string, unknown> = { ...ai.body };
+      if (ai.body.code === "SENSITIVE_DOCUMENT_REQUIRES_LOCAL_AI") {
+        body.action = "switch_to_local_ai";
+        body.provider = "ollama";
+      }
+      return Response.json(body, { status: ai.status });
+    }
+    throw err;
+  }
 
   const stream = new ReadableStream({
     async start(controller) {
+      const streamStartedAt = Date.now();
       const send = (obj: unknown) =>
         controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(obj)}\n\n`));
-      const fail = (error: string, code?: string, status = 500) => {
-        send({ error, code, status });
+      const fail = (error: string, code?: string, status = 500, category?: string) => {
+        send({
+          error,
+          code,
+          status,
+          correlationId: requestId,
+          requestId,
+          errorCategory: category ?? (code ? code.toLowerCase() : "unknown"),
+          category: category ?? (code ? code.toLowerCase() : "unknown"),
+        });
         controller.close();
       };
       try {
@@ -72,7 +126,6 @@ export async function POST(req: Request) {
 
         // 1. OCR cleanup + normalization (Gemma).
         send({ stage: "reading", label: "Reading document" });
-        const engine = getAIEngine();
         const cleanup = await engine.cleanupOcrText({ rawText: text });
         const cleaned = cleanup.cleanedText || text;
         sessions.saveDocument(session.id, {
@@ -158,18 +211,19 @@ export async function POST(req: Request) {
         // Analysis foundation (deterministic, no extra model calls): normalize →
         // classify → entities → claims → evidence, persisted owner-scoped.
         // Additive only — existing pipeline output is unchanged.
+        const normalizedDoc = buildNormalizedDocument({
+          ownerId,
+          sessionId: session.id,
+          sourceType: (fileType as "pdf" | "docx" | "jpeg" | "jpg" | "png" | undefined) ?? "text",
+          fileName: fileName ?? null,
+          language,
+          text: cleaned,
+        });
         let foundation: { documentId: string; classification: string; entities: number; claims: number; evidence: number } | null = null;
         let verificationRoutes: ClaimRoute[] = [];
         let entityDetails: Array<{ type: string; value: string; page: number }> = [];
         try {
-          const normalized = buildNormalizedDocument({
-            ownerId,
-            sessionId: session.id,
-            sourceType: (fileType as "pdf" | "docx" | "jpeg" | "jpg" | "png" | undefined) ?? "text",
-            fileName: fileName ?? null,
-            language,
-            text: cleaned,
-          });
+          const normalized = normalizedDoc;
           const classification = classifyDocument(normalized);
           const entities = extractEntities(normalized);
           const claims = extractClaims(normalized, entities);
@@ -224,14 +278,7 @@ export async function POST(req: Request) {
           contradictions: Array<{ category: string; explanation: string }>;
         } | null = null;
         try {
-          const normalized = buildNormalizedDocument({
-            ownerId,
-            sessionId: session.id,
-            sourceType: (fileType as "pdf" | "docx" | "jpeg" | "jpg" | "png" | undefined) ?? "text",
-            fileName: fileName ?? null,
-            language,
-            text: cleaned,
-          });
+          const normalized = normalizedDoc;
           const cls = classifyDocument(normalized);
           const ents = extractEntities(normalized);
           const clms = extractClaims(normalized, ents);
@@ -306,14 +353,7 @@ export async function POST(req: Request) {
           documents: Array<{ documentName: string; state: string; whyRequired: string }>;
         } | null = null;
         try {
-          const normalized = buildNormalizedDocument({
-            ownerId,
-            sessionId: session.id,
-            sourceType: (fileType as "pdf" | "docx" | "jpeg" | "jpg" | "png" | undefined) ?? "text",
-            fileName: fileName ?? null,
-            language,
-            text: cleaned,
-          });
+          const normalized = normalizedDoc;
           const cls = classifyDocument(normalized);
           if (isSchemeLike(cls.documentType, cleaned)) {
             const scheme = extractScheme(cleaned, extraction, evidence);
@@ -360,14 +400,7 @@ export async function POST(req: Request) {
           header: { court: string | null; caseNumber: string | null; firNumber: string | null };
         } | null = null;
         try {
-          const normalized = buildNormalizedDocument({
-            ownerId,
-            sessionId: session.id,
-            sourceType: (fileType as "pdf" | "docx" | "jpeg" | "jpg" | "png" | undefined) ?? "text",
-            fileName: fileName ?? null,
-            language,
-            text: cleaned,
-          });
+          const normalized = normalizedDoc;
           const cls = classifyDocument(normalized);
           if (isLegalLike(cls.documentType, cleaned)) {
             const header = extractLegalHeader(cleaned);
@@ -413,6 +446,7 @@ export async function POST(req: Request) {
 
         send({
           done: true,
+          provider: engineProvider,
           extraction,
           explanation,
           verification,
@@ -459,10 +493,28 @@ export async function POST(req: Request) {
         });
         controller.close();
       } catch (err) {
-        if (err instanceof AIEngineUnavailableError) {
-          fail(err.message, "AI_UNAVAILABLE", 503);
+        // eslint-disable-next-line no-console
+        console.error(
+          JSON.stringify({
+            component: "analyze-route",
+            event: "failure",
+            correlationId: requestId,
+            elapsedMs: Date.now() - streamStartedAt,
+            errorName: err instanceof Error ? err.name : undefined,
+            errorCategory: err instanceof GeminiError ? err.code : (req.signal.aborted ? "client_disconnected" : "unknown"),
+            httpStatus: err instanceof GeminiError ? err.httpStatus : undefined,
+          })
+        );
+        if (req.signal.aborted) {
+          fail("The client disconnected before analysis completed.", "CLIENT_DISCONNECTED", 499, "client_disconnected");
+          return;
+        }
+        if (err instanceof GeminiError) {
+          fail(err.message, `GEMINI_${err.code.toUpperCase()}`, err.httpStatus, err.code);
+        } else if (err instanceof AIEngineUnavailableError) {
+          fail(err.message, "AI_UNAVAILABLE", 503, "ai_unavailable");
         } else {
-          fail(err instanceof Error ? err.message : "Analysis failed.");
+          fail(err instanceof Error ? err.message : "Analysis failed.", "ANALYSIS_FAILED", 500, "unknown");
         }
       }
     },

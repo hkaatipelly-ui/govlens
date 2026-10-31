@@ -3,16 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "dev:lan": "next dev -H 0.0.0.0",
+    "dev": "NEXT_DIST_DIR=.next-dev next dev",
+    "dev:lan": "NEXT_DIST_DIR=.next-dev next dev -H 0.0.0.0",
     "build": "next build",
     "start": "next start",
     "start:lan": "next start -H 0.0.0.0",
+    "clean:next": "rm -rf .next .next-dev",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:gemini": "vitest run --config vitest.live.config.ts"
   },
   "dependencies": {
+    "@google/genai": "^2.31.0",
     "mammoth": "^1.12.3",
     "next": "14.2.5",
     "pdfjs-dist": "^3.4.120",

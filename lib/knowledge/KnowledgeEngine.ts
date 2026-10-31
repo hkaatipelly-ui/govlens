@@ -10,6 +10,10 @@ export interface SourceMetadata {
   publishedDate: string;
   effectiveDate: string;
   lastVerified: string;
+  /** Additive (Phase 3): "official" | "secondary_unverified" | "sample". */
+  sourceType?: string;
+  /** Additive (Phase 3): geographic scope; falls back to `state` when unset. */
+  jurisdiction?: string;
 }
 
 export interface KnowledgeHit {

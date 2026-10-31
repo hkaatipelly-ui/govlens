@@ -166,37 +166,54 @@ async function normalizePdf(
     .filter(Boolean)
     .join("\n\n");
 
-  // 2) Scanned PDF: little/no text → render pages → existing OCR.
+  // 2) Page-aware extraction: keep embedded text where it is sufficient and OCR
+  //    only pages that are blank/unreadable. This avoids whole-document OCR while
+  //    preserving page-by-page provenance.
+  const MIN_TEXT_PER_PAGE = 25;
+  const pagesNeedingOcr = pages.filter((p) => p.text.trim().length < MIN_TEXT_PER_PAGE);
   let firstPageImageDataUrl: string | null = null;
-  if (combined.replace(/\[Page \d+\]/g, "").trim().length < 50) {
-    const scanned: NormalizedPage[] = [];
-    for (let n = 1; n <= maxPages; n++) {
+  const workingPages = pages.map((p) => ({ ...p }));
+
+  if (pagesNeedingOcr.length > 0) {
+    const OCR_CONCURRENCY = 2;
+    let cursor = 0;
+    const needed = [...pagesNeedingOcr];
+    const processOne = async (pageNumber: number): Promise<void> => {
       try {
-        const page = (await pdf.getPage(n)) as any;
+        const page = (await pdf.getPage(pageNumber)) as any;
         const dataUrl = await renderPageToDataUrl(page, 2.0);
-        if (n === 1) firstPageImageDataUrl = dataUrl;
+        if (pageNumber === 1) firstPageImageDataUrl = dataUrl;
         const blob = await (await fetch(dataUrl)).blob();
         const result = await ocr.recognize(blob, ["eng", "tel"]);
-        scanned.push({ pageNumber: n, text: result.cleanedText });
+        const target = workingPages[pageNumber - 1];
+        if (target && result.cleanedText.trim()) target.text = result.cleanedText.trim();
       } catch (err) {
         if (err instanceof IngestionError) throw err;
-        throw new IngestionError("ocr-failed", "Could not read this scanned PDF (OCR failed).");
+        throw new IngestionError("ocr-failed", "Could not read this scanned PDF page (OCR failed).");
       }
-      onProgress(0.5 + (n / maxPages / 2), `Reading scanned page ${n}/${maxPages}`);
-    }
-    combined = scanned
+      onProgress(0.5 + (pageNumber / maxPages / 2), `Reading scanned page ${pageNumber}/${maxPages}`);
+    };
+    const queue = async (): Promise<void> => {
+      while (cursor < needed.length) {
+        const current = needed[cursor++];
+        await processOne(current.pageNumber);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(OCR_CONCURRENCY, needed.length) }, queue));
+
+    combined = workingPages
       .map((p) => (p.text ? `[Page ${p.pageNumber}]\n${p.text}` : ""))
       .filter(Boolean)
       .join("\n\n");
-    if (!combined.trim()) {
+    if (combined.replace(/\[Page \d+\]/g, "").trim().length < 50) {
       throw new IngestionError(
         "no-text",
         "Could not extract readable text from this document. Try a clearer scan."
       );
     }
-    return { text: combined, pages: scanned, firstPageImageDataUrl };
   }
 
+  if (!firstPageImageDataUrl) {
   // Text PDF: still render page 1 (small) for the vision path.
   try {
     const first = (await pdf.getPage(1)) as any;
@@ -204,7 +221,9 @@ async function normalizePdf(
   } catch {
     /* vision image is optional */
   }
-  return { text: combined, pages, firstPageImageDataUrl };
+  }
+
+  return { text: combined, pages: workingPages, firstPageImageDataUrl };
 }
 
 async function normalizeDocx(file: File): Promise<Pick<NormalizedDocument, "text" | "pages">> {

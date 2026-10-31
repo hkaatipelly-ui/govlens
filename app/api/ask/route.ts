@@ -2,14 +2,25 @@ import { NextResponse } from "next/server";
 import { parseOrError, askRequestSchema } from "@/lib/validation/apiSchemas";
 import { getSessionService } from "@/lib/sessions/SessionService";
 import { getKnowledgeEngine } from "@/lib/knowledge/LocalKnowledgeEngine";
-import { getAIEngine, AIEngineUnavailableError } from "@/lib/ai/OllamaGemmaEngine";
 import { getSourceService } from "@/lib/sources/SourceService";
 import { getOrCreateUserId } from "@/lib/auth/identity";
+import { isOwner } from "@/lib/auth/owner";
+import { requireOwnerLocalAI, toAiErrorResponse } from "@/lib/ai/providerPolicy";
 import { getDatabase } from "@/lib/db/database";
+import { answerPublicServiceQuestion } from "@/lib/qa/publicServiceQa";
 
 /**
- * POST /api/ask — ONE grounded Q&A model call, scoped to a session.
- * Request: { sessionId?, question, documentText?, language? }
+ * POST /api/ask — ONE grounded Q&A model call.
+ *
+ * Two server-selected paths (the client cannot pick a provider — the request
+ * schema strips unknown keys and no body field is ever read for this):
+ *
+ *  A) Document-scoped ({ sessionId } or { documentText }): sensitive content →
+ *     owner-controlled local AI (Ollama/Gemma). Anonymous sessions get 403.
+ *  B) General public question (no session/document): privacy-screened, then
+ *     Gemini (only when configured+enabled by the server) over curated public
+ *     knowledge records. Never a silent fallback to Ollama.
+ *
  * Response: { answer, sources, language, grounded }
  * (+ legacy `answer: { text, sources, verified }` alias)
  */
@@ -24,7 +35,17 @@ export async function POST(req: Request) {
   if (!parsed.ok) return NextResponse.json({ error: parsed.message }, { status: 400 });
   const { sessionId, question, documentText, language } = parsed.data;
 
+  const documentScoped = Boolean(sessionId) || Boolean((documentText ?? "").trim());
+
   try {
+    if (!documentScoped) {
+      return await publicServiceAnswer(question, language);
+    }
+
+    // --- Path A: document-scoped Q&A on the owner-controlled local AI ---
+    // Enforced BEFORE any session/document row is read.
+    const engine = requireOwnerLocalAI(isOwner());
+
     const sessions = getSessionService();
     const ownerId = getOrCreateUserId();
     let docText = documentText ?? "";
@@ -109,7 +130,6 @@ export async function POST(req: Request) {
     const kb = getKnowledgeEngine();
     const evidence = await kb.search(`${question}\n${docText.slice(0, 2000)}`, 3);
 
-    const engine = getAIEngine();
     const { answer, grounded } = await engine.answerQuestion({
       question: tagged.replace(/\[Reply in Hindi\] /, "[Reply in Hindi.] "),
       documentText: docText,
@@ -133,12 +153,30 @@ export async function POST(req: Request) {
       grounded,
     });
   } catch (err) {
-    if (err instanceof AIEngineUnavailableError) {
-      return NextResponse.json({ error: err.message, code: "AI_UNAVAILABLE" }, { status: 503 });
-    }
+    const ai = toAiErrorResponse(err);
+    if (ai) return NextResponse.json(ai.body, { status: ai.status });
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Could not answer the question." },
       { status: 500 }
     );
+  }
+}
+
+/**
+ * Path B: general public-service question → curated public records + Gemini.
+ * Privacy screen runs first; nothing private is transmitted, and history is
+ * deliberately NOT persisted (no session is opened for public questions).
+ */
+async function publicServiceAnswer(
+  question: string,
+  language: "en" | "te" | "hi"
+): Promise<NextResponse> {
+  try {
+    const result = await answerPublicServiceQuestion({ question, language });
+    return NextResponse.json(result);
+  } catch (err) {
+    const ai = toAiErrorResponse(err);
+    if (ai) return NextResponse.json(ai.body, { status: ai.status });
+    throw err;
   }
 }
