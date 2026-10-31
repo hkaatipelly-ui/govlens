@@ -1,19 +1,23 @@
 /**
- * Server-side AI provider policy (Phase 2) — the ONLY place that decides which
- * provider a request may use.
+ * Server-side AI provider policy — the ONLY place that decides which provider
+ * a request may use.
  *
  * Rules enforced here (never by a client-supplied field):
- *   1. Ollama/Gemma is reserved for the authenticated project owner.
+ *   1. Gemini is the ONLY provider in the current GovLens deployment.
  *   2. No request body can select a provider — `provider` is never read; request
  *      schemas strip unknown keys, and these functions take no provider argument.
- *   3. Owner status comes from the server-set session cookie only.
- *   4. Public-service Q&A uses Gemini only when GEMINI_ENABLED=true and
+ *   3. Document analysis (analyze / document Q&A / translate) may be used by ANY
+ *     authenticated Google user for their OWN documents. The identity check is
+ *     `requireAuthenticatedUser()` (lib/auth/googleAuth.ts) at the call site —
+ *     the legacy OWNER_ACCESS_CODE gate is NOT part of this path.
+ *   4. Owner-only administration is a separate check (lib/auth/owner.ts:
+ *     isGoogleOwner()/legacy owner-code route) and is unrelated to provider
+ *     selection.
+ *   5. Public-service Q&A uses Gemini only when GEMINI_ENABLED=true and
  *      GEMINI_API_KEY is present.
- *   5. Gemini unavailable never falls back to Ollama (the public path throws).
- *   6. Ollama unavailable never falls back to Gemini (the owner path only ever
- *      returns the local engine; an Ollama failure surfaces as an error).
- *   7. Identity/data scoping is unchanged — the anonymous owner cookie still
- *      selects rows; switching providers never switches users.
+ *   6. Gemini unavailable never falls back to any other engine (paths throw).
+ *   7. Identity/data scoping is unchanged — the authenticated user id selects
+ *      rows; provider selection never switches users.
  */
 import type { AIEngine } from "./AIEngine";
 import { AIEngineUnavailableError } from "./AIEngine";
@@ -23,7 +27,6 @@ import {
   geminiEnabled,
   getGeminiEngine,
 } from "./GeminiEngine";
-import { ownerConfigurationIssue } from "../auth/owner";
 
 /** Policy rejection with a client-safe message and an HTTP status. */
 export class AIPolicyError extends Error {
@@ -38,9 +41,24 @@ export class AIPolicyError extends Error {
 }
 
 /**
- * Owner-controlled local AI (Ollama/Gemma). `owner` must be the server-side
- * session verdict (`isOwner()`), never a client-supplied flag.
- * Never returns Gemini: Ollama being down must not switch providers.
+ * Document analysis engine gate (analyze / document Q&A / translate).
+ * Authentication is enforced by `requireAuthenticatedUser()` BEFORE this call;
+ * provider selection itself is Gemini-only for every authenticated user.
+ */
+export function requireDocumentAnalysisAI(): AIEngine {
+  const issue = geminiConfigurationIssue();
+  if (issue) {
+    const code = geminiEnabled() ? "PUBLIC_AI_NOT_CONFIGURED" : "PUBLIC_AI_DISABLED";
+    throw new AIPolicyError(503, code, issue);
+  }
+  return getGeminiEngine();
+}
+
+/**
+ * Legacy owner gate, retained ONLY for the legacy admin/login surface and its
+ * unit tests. NOT used by the document-analysis path: authenticated Google
+ * users pass through requireDocumentAnalysisAI(), not this function.
+ * Never returns another provider: an engine failure must never switch providers.
  */
 export function requireOwnerLocalAI(owner: boolean): AIEngine {
   if (!owner) {
@@ -54,8 +72,9 @@ export function requireOwnerLocalAI(owner: boolean): AIEngine {
 }
 
 /**
- * Public-service Q&A provider (Gemini). Throws instead of degrading to Ollama,
- * so a missing/disabled Gemini is visible rather than silently rerouted.
+ * Public-service Q&A provider (Gemini). Throws instead of degrading to any
+ * other engine, so a missing/disabled Gemini is visible rather than silently
+ * rerouted.
  */
 export function requirePublicQnAI(): AIEngine {
   const issue = geminiConfigurationIssue();

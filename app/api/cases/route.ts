@@ -6,8 +6,8 @@ import { getKnowledgeEngine } from "@/lib/knowledge/LocalKnowledgeEngine";
 import { getActionEngine } from "@/lib/actions/ActionEngine";
 import { getAIEngine } from "@/lib/ai/OllamaGemmaEngine";
 import { validateExtractionJson } from "@/lib/extraction/schemas";
-import { getOrCreateUserId, scopedAuthUserId } from "@/lib/auth/identity";
-import { isOwner } from "@/lib/auth/owner";
+import { scopedAuthUserId } from "@/lib/auth/identity";
+import { requireAuthenticatedUser } from "@/lib/auth/googleAuth";
 
 /**
  * GET /api/cases — list all cases (newest first).
@@ -57,9 +57,15 @@ export async function POST(req: Request) {
       const evidence = await kb.search(session.documentText, 3);
       const checklist = getActionEngine().buildChecklist(session.extraction, evidence);
       // AI action plan enriches the checklist (falls back to rule-based on failure).
-      // Owner-controlled local AI: the enrichment is skipped for public sessions so
-      // an unauthenticated request can never indirectly invoke Ollama.
-      if (isOwner()) {
+      // Authenticated Google users get the AI-enriched checklist; anonymous
+      // requests never indirectly invoke the AI engine.
+      let aiEnrichmentAllowed = true;
+      try {
+        await requireAuthenticatedUser();
+      } catch {
+        aiEnrichmentAllowed = false;
+      }
+      if (aiEnrichmentAllowed) {
         try {
           const plan = await getAIEngine().generateActionPlan({
             extraction: session.extraction,

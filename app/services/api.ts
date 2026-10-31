@@ -94,30 +94,32 @@ export async function apiHealth(): Promise<{
   return json(res);
 }
 
-// --- Owner session (owner-controlled local AI; the server sets the HttpOnly cookie) ---
+// --- Auth.js session status (primary; replaces the legacy owner status probe) ---
 
-export interface OwnerStatus {
+export interface AuthStatus {
   authenticated: boolean;
-  configured: boolean;
+  role: "user" | "owner" | null;
 }
 
-export async function apiOwnerStatus(): Promise<OwnerStatus> {
-  return json(await fetch("/api/owner/login", { cache: "no-store" }));
+/** Auth.js session probe: reads /api/auth/session and maps to a stable shape. */
+export async function apiAuthStatus(): Promise<AuthStatus> {
+  const res = await fetch("/api/auth/session", { cache: "no-store" });
+  const session = await json<AuthJsSessionShape>(res);
+  const user = session?.user ?? null;
+  return {
+    authenticated: Boolean(user?.id?.trim() || user?.email?.trim()),
+    role: user?.role === "owner" ? "owner" : user ? "user" : null,
+  };
 }
 
-export async function apiOwnerLogin(code: string): Promise<{ ok: boolean }> {
-  return json(
-    await fetch("/api/owner/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code }),
-    })
-  );
+interface AuthJsSessionShape {
+  user?: { id?: string; email?: string | null; role?: "user" | "owner" } | null;
+  expires?: string;
 }
 
-export async function apiOwnerLogout(): Promise<{ ok: boolean }> {
-  return json(await fetch("/api/owner/login", { method: "DELETE" }));
-}
+// NOTE: the legacy /api/owner/login owner-code route remains an independent
+// server-only admin gate; its client helpers were removed from this module —
+// no page or API flow depends on it anymore.
 
 export type AnalyzeStage =
   | "reading"

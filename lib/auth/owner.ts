@@ -1,16 +1,20 @@
 /**
- * Owner session + login throttle (server-only, additive to the caseworker gate).
+ * Owner role + login throttle (server-only, additive to the caseworker gate).
  *
- * The owner is the person who operates this GovLens deployment. Owner status is
- * established ONLY server-side:
+ * OWNER AUTHORITY (primary): the verified Auth.js Google session. A session is
+ * the "owner" when its Google-verified email equals OWNER_GOOGLE_EMAIL. This is
+ * checked against the server-issued JWT session — never a client-supplied flag.
+ * Ordinary verified Google users are signed in as "user" and can never become
+ * owners by sending role/owner flags or cookies.
+ *
+ * OWNER ACCESS CODE (legacy, optional): an independent, server-env-only access
+ * code for the legacy /api/owner/login admin gate. It is NOT part of the
+ * normal Google login or document-analysis flow and cannot block either.
  *   - the access code lives in the server environment (OWNER_ACCESS_CODE), never
  *     in Git, never in a client payload, and has NO built-in default;
  *   - a successful login issues a time-limited HMAC-signed session token stored
  *     in an HttpOnly cookie (so a leaked token cannot outlive its expiry);
  *   - login attempts are rate-limited per client key.
- *
- * This gate protects the owner-controlled local AI (Ollama/Gemma). It does not
- * replace or weaken the existing caseworker gate in lib/auth/identity.ts.
  */
 import { cookies } from "next/headers";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
@@ -65,7 +69,10 @@ export function ownerConfigured(): boolean {
 }
 
 function ownerAccessCode(): string | null {
-  return ownerConfigured() ? process.env.OWNER_ACCESS_CODE!.trim() : null;
+  const raw = process.env.OWNER_ACCESS_CODE?.trim();
+  // ownerConfigured() can be true via the Google-owner path (no code required);
+  // never dereference a missing code here (it must not crash issuance).
+  return ownerConfigured() && raw ? raw : null;
 }
 
 export function ownerSessionTtlSeconds(): number {
@@ -144,6 +151,23 @@ function cookieFlags(maxAge: number) {
 
 export function isOwner(): boolean {
   return verifyOwnerSession(cookies().get(OWNER_COOKIE)?.value);
+}
+
+/**
+ * Primary owner check: the verified Auth.js Google session email equals
+ * OWNER_GOOGLE_EMAIL. Server-side only — browser JSON/cookies never decide it.
+ */
+export async function isGoogleOwner(): Promise<boolean> {
+  const ownerEmail = (process.env.OWNER_GOOGLE_EMAIL ?? "").trim().toLowerCase();
+  if (!ownerEmail) return false;
+  try {
+    const { auth } = await import("@/auth");
+    const session = await auth();
+    const email = session?.user?.email?.trim().toLowerCase();
+    return Boolean(email) && email === ownerEmail;
+  } catch {
+    return false;
+  }
 }
 
 export function setOwnerCookie(session: OwnerSession): void {

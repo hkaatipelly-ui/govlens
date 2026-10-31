@@ -7,16 +7,29 @@
 - No `NEXT_PUBLIC_` secret exists.
 
 ## Required Vercel environment variables
+- Google public sign-in (mandatory for the deployed app):
+  - `AUTH_SECRET` (Auth.js session secret).
+  - `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET` (Google OAuth client).
+  - `OWNER_GOOGLE_EMAIL` — role marker ONLY: this verified Google account gets owner
+    privileges; every other verified Google account signs in publicly as a normal user.
+    If unset, ordinary users can still log in but owner controls stay unavailable.
+- `OWNER_ACCESS_CODE` is NOT required for Google sign-in or document analysis.
+  It is only for the optional legacy `/api/owner/login` admin gate.
 - `GEMINI_API_KEY` (server-side secret).
 - `GEMINI_ENABLED=true`.
 - `GEMINI_MODEL=gemini-3.8-flash`.
 - `GEMINI_TIMEOUT_MS=540000` for Pro; on Hobby reduce to a value under 300000 ms.
 - `GEMINI_MAX_OUTPUT_TOKENS=1024`.
-- `OWNER_ACCESS_CODE=<at least 8 characters>`.
 - `CASEWORKER_ACCESS_CODE`.
 - `GEMINI_DATA_PROTECTION_MODE=paid` and `GEMINI_PAID_API_BILLING_CONFIRMED=true` only if sensitive document processing is intended.
 - `GEMINI_ALLOW_SENSITIVE_DOCUMENTS` only if intentionally enabled.
 - `DATABASE_PATH` must point to persistent external storage before production use with durable data.
+
+## Google OAuth app settings
+- Authorized JavaScript origin: `https://govlensnew.vercel.app`.
+- Authorized redirect URI (must match exactly):
+  `https://govlensnew.vercel.app/api/auth/callback/google`
+- Publishing status: `In production` so any verified Google account can sign in.
 
 ## Runtime and function settings
 - Document analysis route: `app/api/analyze/route.ts` uses `runtime = "nodejs"` and `maxDuration = 300`.

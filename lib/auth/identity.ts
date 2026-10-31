@@ -8,11 +8,25 @@ const CW_COOKIE = "govlens_caseworker";
 
 export const PROTOTYPE_OWNER = "prototype-admin";
 
-/** Stable internal user id derived server-side from a verified Google email. */
-export function googleUserId(verifiedEmail: string): string {
+/**
+ * Stable internal user id derived server-side from the verified Google subject (`sub`).
+ * Historic note: before the sub-based id, googleUserId(email) hashed the email
+ * with the prefix "govlens-google-user".
+ */
+export function googleSubjectUserId(subject: string): string {
+  const trimmed = subject.trim();
+  if (!trimmed) throw new Error("Google subject identifier must not be empty.");
   const secret = process.env.AUTH_SECRET ?? "";
-  const normalized = verifiedEmail.trim().toLowerCase();
-  return createHash("sha256").update(`govlens-google-user:${secret}:${normalized}`).digest("hex").slice(0, 48);
+  return createHash("sha256").update(`govlens-google-sub:${secret}:${trimmed}`).digest("hex").slice(0, 48);
+}
+
+/**
+ * LEGACY: stable internal user id derived from a verified Google email
+ * (pre-subject-identifier data compatibility only — new flows use
+ * googleSubjectUserId() so one Google account maps to exactly one id).
+ */
+export function googleUserId(verifiedEmail: string): string {
+  return googleSubjectUserId(verifiedEmail.trim().toLowerCase());
 }
 
 function cookieFlags(maxAge: number) {
@@ -43,15 +57,18 @@ export function getOrCreateUserId(): string {
 }
 
 /**
- * Stable, server-authoritative user id when a Google session exists.
- * Unauthenticated visitors retain the existing anonymous cookie behavior.
+ * Stable, server-authoritative user id when a Google session exists: derived
+ * from the persisted Google subject (`sub`) via session.user.id — the SAME
+ * derivation used by requireAuthenticatedUser() so every endpoint scopes data
+ * to one identical identity per Google account. Unauthenticated visitors retain
+ * the existing anonymous cookie behavior.
  */
 export async function scopedAuthUserId(): Promise<string> {
   const { auth } = await import("@/auth");
   const session = await auth();
-  const email = session?.user?.email;
-  if (typeof email === "string" && email.trim()) {
-    return googleUserId(email.trim().toLowerCase());
+  const subject = session?.user?.id;
+  if (typeof subject === "string" && subject.trim()) {
+    return googleSubjectUserId(subject.trim());
   }
   return getOrCreateUserId();
 }

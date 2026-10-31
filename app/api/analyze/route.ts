@@ -10,7 +10,7 @@ import { AIEngineUnavailableError, AITimeoutError } from "@/lib/ai/OllamaGemmaEn
 import { getGeminiEngine, geminiConfigurationIssue, geminiEnabled, sensitiveDocumentProcessingEnabled, sensitiveDocumentBlockMessage, GeminiError } from "@/lib/ai/GeminiEngine";
 import { isSensitiveDocument } from "@/lib/ai/geminiPrivacy";
 import type { AIEngine } from "@/lib/ai/AIEngine";
-import { requireOwnerLocalAI, toAiErrorResponse, AIPolicyError } from "@/lib/ai/providerPolicy";
+import { requireDocumentAnalysisAI, toAiErrorResponse, AIPolicyError } from "@/lib/ai/providerPolicy";
 import { requireAuthenticatedUser } from "@/lib/auth/googleAuth";
 import { GovernmentDocumentVerificationService } from "@/lib/verification/GovernmentDocumentVerificationService";
 import { getActionEngine } from "@/lib/actions/ActionEngine";
@@ -43,8 +43,13 @@ import type { ClaimRoute } from "@/lib/verification/pipeline";
 
 /**
  * POST /api/analyze — full AI pipeline with honest server-sent progress:
- *   cleanup (Gemma) → verify type (Gemma A+B) → retrieve (KnowledgeEngine)
- *   → vision verify (Gemma image, if provided) + extract → explain.
+ *   cleanup → verify type (A+B) → retrieve (KnowledgeEngine)
+ *   → vision verify (image, if provided) + extract → explain.
+ *
+ * Authorization: ANY authenticated Google user may analyze their own permitted
+ * documents (requireAuthenticatedUser → 401 when unauthenticated). The legacy
+ * owner-only gate and OWNER_ACCESS_CODE are NOT part of this path.
+ * Sensitive-document restrictions and explicit cloud consent remain enforced.
  *
  * Events: {stage} … {done: payload} | {error, code}.
  * ONE request; no polling; every stage event reflects real completed work.
@@ -81,17 +86,10 @@ export async function POST(req: Request) {
     if (!cloudConsented) {
       throw new AIPolicyError(403, "CLOUD_CONSENT_REQUIRED", "Explicit consent is required before document text can be sent to Google Gemini.");
     }
-    engine = requireOwnerLocalAI(true);
+    engine = requireDocumentAnalysisAI();
   } catch (err) {
     const ai = toAiErrorResponse(err);
-    if (ai) {
-      const body: Record<string, unknown> = { ...ai.body };
-      if (ai.body.code === "SENSITIVE_DOCUMENT_REQUIRES_LOCAL_AI") {
-        body.action = "switch_to_local_ai";
-        body.provider = "ollama";
-      }
-      return Response.json(body, { status: ai.status });
-    }
+    if (ai) return Response.json(ai.body, { status: ai.status });
     throw err;
   }
 

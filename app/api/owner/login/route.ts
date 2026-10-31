@@ -13,10 +13,21 @@ import {
 } from "@/lib/auth/owner";
 
 /**
- * POST   /api/owner/login — exchange the server-configured owner code for a
- *        time-limited HttpOnly owner session (rate-limited per client key).
- * GET    /api/owner/login — session/config check for the sign-in page.
- * DELETE /api/owner/login — sign out.
+ * LEGACY owner access-code gate — independent of public Google authentication.
+ *
+ * This route is NOT part of the normal login flow:
+ *   - Normal login is Google-based (Auth.js) and NEVER requires OWNER_ACCESS_CODE.
+ *   - Document analysis authorizes ANY authenticated Google user
+ *     (lib/auth/googleAuth.ts), never the owner cookie from this route.
+ *   - The legacy gate may still be used by server-side admin tooling that wants
+ *     a separate owner-code session; deployments that authenticate the owner
+ *     via OWNER_GOOGLE_EMAIL do not need it.
+ *
+ * POST   /api/owner/login — exchange OWNER_ACCESS_CODE for a time-limited
+ *        HttpOnly owner session (rate-limited per client key).
+ * GET    /api/owner/login — legacy session/config probe (kept for older
+ *        tooling; pages no longer depend on it).
+ * DELETE /api/owner/login — sign out of the legacy owner session.
  */
 
 function clientKey(req: Request): string {
@@ -26,6 +37,19 @@ function clientKey(req: Request): string {
 }
 
 export async function POST(req: Request) {
+  const googleOnlyOwner = Boolean(
+    process.env.OWNER_GOOGLE_EMAIL?.trim() && !process.env.OWNER_ACCESS_CODE?.trim()
+  );
+  if (googleOnlyOwner) {
+    return NextResponse.json(
+      {
+        error:
+          "This deployment authenticates the owner via Google sign-in; OWNER_ACCESS_CODE is not configured. Google sign-in and document analysis are unaffected.",
+        code: "OWNER_NOT_CONFIGURED",
+      },
+      { status: 503 }
+    );
+  }
   const issue = ownerConfigurationIssue();
   if (issue || !ownerConfigured()) {
     return NextResponse.json(
@@ -41,26 +65,26 @@ export async function POST(req: Request) {
       {
         error: `Too many sign-in attempts. Try again in ${throttle.retryAfterSeconds} seconds.`,
         code: "OWNER_THROTTLED",
-        retryAfterSeconds: throttle.retryAfterSeconds,
       },
-      { status: 429, headers: { "Retry-After": String(throttle.retryAfterSeconds) } }
+      { status: 429, headers: { "retry-after": String(throttle.retryAfterSeconds) } }
     );
   }
 
-  let body: unknown;
+  let code = "";
   try {
-    body = await req.json();
+    const body = (await req.json()) as { code?: unknown };
+    if (typeof body?.code === "string") code = body.code;
   } catch {
-    return NextResponse.json({ error: "Invalid request: body must be JSON." }, { status: 400 });
+    code = "";
   }
-  const code = (body as { code?: unknown }).code;
-  if (typeof code !== "string" || !code.trim()) {
-    return NextResponse.json({ error: "Owner code is required." }, { status: 400 });
-  }
-
+  // Never trust a client-supplied role/owner flag: only the server code issue
+  // decides ownership here.
   if (!verifyOwnerCode(code.trim())) {
     recordFailedLogin(key);
-    return NextResponse.json({ error: "Incorrect owner code." }, { status: 401 });
+    return NextResponse.json(
+      { error: "Incorrect owner code.", code: "OWNER_LOGIN_FAILED" },
+      { status: 401 }
+    );
   }
 
   clearFailedLogins(key);
@@ -69,6 +93,8 @@ export async function POST(req: Request) {
 }
 
 export async function GET() {
+  // Legacy probe shape ({ authenticated, configured }); pages use
+  // /api/auth/session (Auth.js) instead.
   return NextResponse.json({ authenticated: isOwner(), configured: ownerConfigured() });
 }
 

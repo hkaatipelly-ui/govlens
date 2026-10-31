@@ -3,9 +3,14 @@ import { parseOrError, askRequestSchema } from "@/lib/validation/apiSchemas";
 import { getSessionService } from "@/lib/sessions/SessionService";
 import { getKnowledgeEngine } from "@/lib/knowledge/LocalKnowledgeEngine";
 import { getSourceService } from "@/lib/sources/SourceService";
-import { getOrCreateUserId, scopedAuthUserId } from "@/lib/auth/identity";
-import { isOwner } from "@/lib/auth/owner";
-import { requireOwnerLocalAI, toAiErrorResponse } from "@/lib/ai/providerPolicy";
+import { scopedAuthUserId } from "@/lib/auth/identity";
+import { requireAuthenticatedUser } from "@/lib/auth/googleAuth";
+import { requireDocumentAnalysisAI, toAiErrorResponse } from "@/lib/ai/providerPolicy";
+import { isSensitiveDocument } from "@/lib/ai/geminiPrivacy";
+import {
+  sensitiveDocumentProcessingEnabled,
+  sensitiveDocumentBlockMessage,
+} from "@/lib/ai/GeminiEngine";
 import { getDatabase } from "@/lib/db/database";
 import { answerPublicServiceQuestion } from "@/lib/qa/publicServiceQa";
 
@@ -15,11 +20,12 @@ import { answerPublicServiceQuestion } from "@/lib/qa/publicServiceQa";
  * Two server-selected paths (the client cannot pick a provider — the request
  * schema strips unknown keys and no body field is ever read for this):
  *
- *  A) Document-scoped ({ sessionId } or { documentText }): sensitive content →
- *     owner-controlled local AI (Ollama/Gemma). Anonymous sessions get 403.
+ *  A) Document-scoped ({ sessionId } or { documentText }): ANY authenticated
+ *     Google user may ask questions about their own documents. Unauthenticated
+ *     requests get 401. Sensitive-document restrictions still apply.
  *  B) General public question (no session/document): privacy-screened, then
  *     Gemini (only when configured+enabled by the server) over curated public
- *     knowledge records. Never a silent fallback to Ollama.
+ *     knowledge records. Never a silent fallback.
  *
  * Response: { answer, sources, language, grounded }
  * (+ legacy `answer: { text, sources, verified }` alias)
@@ -42,9 +48,19 @@ export async function POST(req: Request) {
       return await publicServiceAnswer(question, language);
     }
 
-    // --- Path A: document-scoped Q&A on the owner-controlled local AI ---
-    // Enforced BEFORE any session/document row is read.
-    const engine = requireOwnerLocalAI(isOwner());
+    // --- Path A: document-scoped Q&A for ANY authenticated Google user ---
+    // Enforced BEFORE any session/document row is read. 401 when unauthenticated;
+    // ordinary users must never see an owner-access-code error here.
+    await requireAuthenticatedUser();
+    const engine = requireDocumentAnalysisAI();
+    // Sensitive-document restriction stays active in the Gemini-only flow.
+    const sensitiveText = sessionId ? "" : documentText ?? "";
+    if (sensitiveText && isSensitiveDocument(sensitiveText) && !sensitiveDocumentProcessingEnabled()) {
+      return NextResponse.json(
+        { error: sensitiveDocumentBlockMessage(), code: "SENSITIVE_DOCUMENT_BLOCKED" },
+        { status: 403 }
+      );
+    }
 
     const sessions = getSessionService();
     const ownerId = await scopedAuthUserId();
